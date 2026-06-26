@@ -3,8 +3,26 @@ import Login from './pages/Login';
 import InternPanel from './pages/InternPanel';
 import SupervisorPanel from './pages/SupervisorPanel';
 import AdminPanel from './pages/AdminPanel';
-import { User } from './types';
+import { User, resolvePermissions } from './types';
 import { initStorage, getSession, clearSession } from './utils/storage';
+
+/** Decide qual painel mostrar com base nas permissões resolvidas (cargo + overrides individuais) */
+function resolvePanel(user: User): 'admin' | 'supervisor' | 'intern' {
+  const p = resolvePermissions(user);
+
+  // Qualquer permissão de gestão administrativa → AdminPanel
+  if (p.canManageUsers || p.canManageTechnicians || p.canManageSettings || p.canManageOptions) {
+    return 'admin';
+  }
+
+  // Permissões de supervisor (visualizar todos, exportar) → SupervisorPanel
+  if (p.canViewAllCalls || p.canExportExcel) {
+    return 'supervisor';
+  }
+
+  // Padrão: painel do estagiário
+  return 'intern';
+}
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -50,13 +68,9 @@ export default function App() {
     return <Login onLogin={setUser} />;
   }
 
-  if (user.role === 'admin') {
-    return <AdminPanel user={user} onLogout={handleLogout} />;
-  }
+  const panel = resolvePanel(user);
 
-  if (user.role === 'supervisor') {
-    return <SupervisorPanel user={user} onLogout={handleLogout} />;
-  }
-
+  if (panel === 'admin') return <AdminPanel user={user} onLogout={handleLogout} />;
+  if (panel === 'supervisor') return <SupervisorPanel user={user} onLogout={handleLogout} />;
   return <InternPanel user={user} onLogout={handleLogout} />;
 }
