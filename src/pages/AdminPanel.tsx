@@ -75,12 +75,22 @@ export default function AdminPanel({ user, onLogout }: AdminPanelProps) {
     }
   };
 
-  const showMsg = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 4000); };
+  const showMsg = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 5000); };
 
-  // Wrapper para mostrar erros no toast em vez de silenciar
+  // Wrapper: executa fn e mostra qualquer erro como toast (nunca silencia)
   const run = async (fn: () => Promise<void>) => {
-    try { await fn(); }
-    catch (err) { showMsg(err instanceof Error ? err.message : 'Erro inesperado. Verifique o console.'); }
+    try {
+      await fn();
+    } catch (err) {
+      console.error('[AdminPanel] Erro:', err);
+      let msg = 'Erro inesperado. Verifique o console (F12).';
+      if (err instanceof Error) {
+        msg = err.message;
+      } else if (typeof err === 'object' && err !== null && 'message' in err) {
+        msg = String((err as Record<string, unknown>).message);
+      }
+      showMsg(`❌ ${msg}`);
+    }
   };
 
   // ── User CRUD ──────────────────────────────────────────────────────────────

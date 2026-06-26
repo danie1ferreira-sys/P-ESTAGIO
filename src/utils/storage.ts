@@ -103,8 +103,20 @@ function slugify(value: string) {
 }
 
 async function throwIfError<T>(result: { data: T | null; error: unknown }): Promise<T> {
-  if (result.error) throw result.error;
+  if (result.error) throw toError(result.error);
   return result.data as T;
+}
+
+/** Converts any Supabase PostgrestError or unknown value into a proper Error instance */
+function toError(err: unknown): Error {
+  if (err instanceof Error) return err;
+  if (typeof err === 'object' && err !== null) {
+    const e = err as Record<string, unknown>;
+    const msg = typeof e.message === 'string' ? e.message : JSON.stringify(e);
+    const detail = typeof e.details === 'string' ? ` — ${e.details}` : '';
+    return new Error(msg + detail);
+  }
+  return new Error(String(err));
 }
 
 // ─── Init ────────────────────────────────────────────────────────────────────
@@ -140,7 +152,7 @@ export async function initStorage() {
 export async function getUsers(): Promise<User[]> {
   const { data, error } = await supabase
     .from(USERS_TABLE).select('*').order('name', { ascending: true });
-  if (error) throw error;
+  if (error) throw toError(error);
   return (data as UserRow[]).map(toUser);
 }
 
@@ -153,28 +165,29 @@ export async function authenticate(username: string, password: string): Promise<
   const { data, error } = await supabase
     .from(USERS_TABLE).select('*')
     .ilike('username', username).eq('password', password).maybeSingle();
-  if (error) throw error;
+  if (error) throw toError(error);
   return data ? toUser(data as UserRow) : null;
 }
 
 export async function addUser(user: User) {
   const { error } = await supabase.from(USERS_TABLE).insert(toUserRow(user));
-  if (error) throw error;
+  if (error) throw toError(error);
 }
 
 export async function updateUser(user: User) {
   const { error } = await supabase
     .from(USERS_TABLE).update(toUserRow(user)).eq('id', user.id);
-  if (error) throw error;
+  if (error) throw toError(error);
 
   const session = getSession();
   if (session?.id === user.id) setSession(user);
 }
 
 export async function saveUserPermissions(userId: string, permissions: UserPermissions): Promise<void> {
-  const { error } = await supabase
-    .from(USERS_TABLE).update({ permissions }).eq('id', userId);
-  if (error) throw error;
+  const { error, data } = await supabase
+    .from(USERS_TABLE).update({ permissions }).eq('id', userId).select();
+  if (error) throw toError(error);
+  if (!data || data.length === 0) throw new Error('Nenhum usuário encontrado com o ID informado.');
 
   const session = getSession();
   if (session?.id === userId) setSession({ ...session, permissions });
@@ -183,7 +196,7 @@ export async function saveUserPermissions(userId: string, permissions: UserPermi
 export async function resetUserPassword(userId: string, newPassword: string, mustChangePassword: boolean): Promise<void> {
   const { error } = await supabase
     .from(USERS_TABLE).update({ password: newPassword, must_change_password: mustChangePassword }).eq('id', userId);
-  if (error) throw error;
+  if (error) throw toError(error);
 
   const session = getSession();
   if (session?.id === userId) setSession({ ...session, password: newPassword, mustChangePassword });
@@ -191,7 +204,7 @@ export async function resetUserPassword(userId: string, newPassword: string, mus
 
 export async function deleteUser(userId: string) {
   const { error } = await supabase.from(USERS_TABLE).delete().eq('id', userId);
-  if (error) throw error;
+  if (error) throw toError(error);
 }
 
 // ─── Session ─────────────────────────────────────────────────────────────────
