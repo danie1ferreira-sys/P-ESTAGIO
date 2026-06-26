@@ -77,6 +77,12 @@ export default function AdminPanel({ user, onLogout }: AdminPanelProps) {
 
   const showMsg = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 4000); };
 
+  // Wrapper para mostrar erros no toast em vez de silenciar
+  const run = async (fn: () => Promise<void>) => {
+    try { await fn(); }
+    catch (err) { showMsg(err instanceof Error ? err.message : 'Erro inesperado. Verifique o console.'); }
+  };
+
   // ── User CRUD ──────────────────────────────────────────────────────────────
 
   const openAddUser = () => {
@@ -96,21 +102,28 @@ export default function AdminPanel({ user, onLogout }: AdminPanelProps) {
     if (users.some((u) => u.username.toLowerCase() === uname && (!editingUser || u.id !== editingUser.id))) {
       showMsg('Nome de usuário já em uso.'); return;
     }
-    if (editingUser) {
-      await updateUser({ ...editingUser, name: userName.trim(), username: userUsername.trim(), role: userRole });
-      showMsg('Usuário atualizado!');
-      setShowUserModal(false);
-    } else {
-      const pwd = generateDefaultPassword(uname);
-      await addUser({ id: generateId(), name: userName.trim(), username: uname, password: pwd, role: userRole, mustChangePassword: true, permissions: {} });
-      setGeneratedPassword(pwd);
-    }
-    await loadData();
+    await run(async () => {
+      if (editingUser) {
+        await updateUser({ ...editingUser, name: userName.trim(), username: userUsername.trim(), role: userRole });
+        showMsg('Usuário atualizado!');
+        setShowUserModal(false);
+      } else {
+        const pwd = generateDefaultPassword(uname);
+        await addUser({ id: generateId(), name: userName.trim(), username: uname, password: pwd, role: userRole, mustChangePassword: true, permissions: {} });
+        setGeneratedPassword(pwd);
+      }
+      await loadData();
+    });
   };
 
   const handleDeleteUser = async (u: User) => {
     if (u.id === user.id) { showMsg('Você não pode excluir sua própria conta.'); return; }
-    await deleteUser(u.id); setDeleteConfirm(null); showMsg('Usuário removido.'); await loadData();
+    await run(async () => {
+      await deleteUser(u.id);
+      setDeleteConfirm(null);
+      showMsg('Usuário removido.');
+      await loadData();
+    });
   };
 
   // ── Permissions modal ──────────────────────────────────────────────────────
@@ -122,16 +135,18 @@ export default function AdminPanel({ user, onLogout }: AdminPanelProps) {
 
   const handleSavePermissions = async () => {
     if (!permissionsUser) return;
-    // Save only overrides (values that differ from role defaults)
-    const defaults = DEFAULT_PERMISSIONS[permissionsUser.role];
-    const overrides: UserPermissions = {};
-    ALL_PERMISSIONS.forEach((p) => {
-      if (editPerms[p] !== defaults[p]) overrides[p] = editPerms[p];
+    await run(async () => {
+      // Salva apenas as sobreposições (valores que diferem do padrão do cargo)
+      const defaults = DEFAULT_PERMISSIONS[permissionsUser.role];
+      const overrides: UserPermissions = {};
+      ALL_PERMISSIONS.forEach((p) => {
+        if (editPerms[p] !== defaults[p]) overrides[p] = editPerms[p];
+      });
+      await saveUserPermissions(permissionsUser.id, overrides);
+      showMsg(`Permissões de ${permissionsUser.name} salvas!`);
+      setPermissionsUser(null);
+      await loadData();
     });
-    await saveUserPermissions(permissionsUser.id, overrides);
-    showMsg(`Permissões de ${permissionsUser.name} salvas!`);
-    setPermissionsUser(null);
-    await loadData();
   };
 
   const resetPermissionsToDefault = () => {
@@ -148,9 +163,12 @@ export default function AdminPanel({ user, onLogout }: AdminPanelProps) {
   const handleResetPwd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!resetUser || !resetPwd.trim()) { showMsg('Informe a nova senha.'); return; }
-    await resetUserPassword(resetUser.id, resetPwd.trim(), resetMustChange);
-    showMsg(`Senha de ${resetUser.name} redefinida!`);
-    setResetUser(null); await loadData();
+    await run(async () => {
+      await resetUserPassword(resetUser.id, resetPwd.trim(), resetMustChange);
+      showMsg(`Senha de ${resetUser.name} redefinida!`);
+      setResetUser(null);
+      await loadData();
+    });
   };
 
   // ── Technicians CRUD ───────────────────────────────────────────────────────
@@ -161,19 +179,33 @@ export default function AdminPanel({ user, onLogout }: AdminPanelProps) {
     if (technicians.some((t) => t.name.toLowerCase() === newTechName.trim().toLowerCase())) {
       showMsg('Técnico com este nome já existe.'); return;
     }
-    await addTechnician({ id: generateId(), name: newTechName.trim() });
-    setNewTechName(''); showMsg('Técnico adicionado!'); await loadData();
+    await run(async () => {
+      await addTechnician({ id: generateId(), name: newTechName.trim() });
+      setNewTechName('');
+      showMsg('Técnico adicionado!');
+      await loadData();
+    });
   };
 
   const handleSaveTech = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingTech || !editTechName.trim()) return;
-    await updateTechnician({ ...editingTech, name: editTechName.trim() });
-    setEditingTech(null); setEditTechName(''); showMsg('Técnico atualizado!'); await loadData();
+    await run(async () => {
+      await updateTechnician({ ...editingTech, name: editTechName.trim() });
+      setEditingTech(null);
+      setEditTechName('');
+      showMsg('Técnico atualizado!');
+      await loadData();
+    });
   };
 
   const handleDeleteTech = async (t: Technician) => {
-    await deleteTechnician(t.id); setDeleteTechConfirm(null); showMsg('Técnico removido.'); await loadData();
+    await run(async () => {
+      await deleteTechnician(t.id);
+      setDeleteTechConfirm(null);
+      showMsg('Técnico removido.');
+      await loadData();
+    });
   };
 
   // ── Form Config ────────────────────────────────────────────────────────────
@@ -182,42 +214,52 @@ export default function AdminPanel({ user, onLogout }: AdminPanelProps) {
     setFormConfig((prev) => ({ ...prev, [field]: { ...prev[field], [key]: value } }));
   };
 
-  const handleSaveFormConfig = async () => {
-    await saveFormConfig(formConfig); showMsg('Configurações do formulário salvas!');
-  };
+  const handleSaveFormConfig = () => run(async () => {
+    await saveFormConfig(formConfig);
+    showMsg('Configurações do formulário salvas!');
+  });
 
   const handleResetFormConfig = () => { setFormConfig(DEFAULT_FORM_CONFIG); showMsg('Formulário resetado ao padrão.'); };
 
   // ── General Config ─────────────────────────────────────────────────────────
 
-  const handleSaveGeneralConfig = async () => {
-    await saveGeneralConfig(generalConfig); showMsg('Configurações gerais salvas!');
-  };
+  const handleSaveGeneralConfig = () => run(async () => {
+    await saveGeneralConfig(generalConfig);
+    showMsg('Configurações gerais salvas!');
+  });
 
   // ── Options CRUD ───────────────────────────────────────────────────────────
 
   const handleAddSystem = async (e: React.FormEvent) => {
     e.preventDefault(); if (!newSystem.trim()) return;
     if (systems.some((s) => s.toLowerCase() === newSystem.trim().toLowerCase())) { showMsg('Sistema já existe.'); return; }
-    const updated = [...systems, newSystem.trim()];
-    await saveSystems(updated); setSystems(updated); setNewSystem(''); showMsg('Sistema adicionado!');
+    await run(async () => {
+      const updated = [...systems, newSystem.trim()];
+      await saveSystems(updated); setSystems(updated); setNewSystem(''); showMsg('Sistema adicionado!');
+    });
   };
 
   const handleDeleteSystem = async (s: string) => {
-    const updated = systems.filter((x) => x !== s);
-    await saveSystems(updated); setSystems(updated); showMsg('Sistema removido.');
+    await run(async () => {
+      const updated = systems.filter((x) => x !== s);
+      await saveSystems(updated); setSystems(updated); showMsg('Sistema removido.');
+    });
   };
 
   const handleAddOrgan = async (e: React.FormEvent) => {
     e.preventDefault(); if (!newOrgan.trim()) return;
     if (organs.some((o) => o.toLowerCase() === newOrgan.trim().toLowerCase())) { showMsg('Órgão já existe.'); return; }
-    const updated = [...organs, newOrgan.trim()];
-    await saveOrgans(updated); setOrgans(updated); setNewOrgan(''); showMsg('Órgão/Setor adicionado!');
+    await run(async () => {
+      const updated = [...organs, newOrgan.trim()];
+      await saveOrgans(updated); setOrgans(updated); setNewOrgan(''); showMsg('Órgão/Setor adicionado!');
+    });
   };
 
   const handleDeleteOrgan = async (o: string) => {
-    const updated = organs.filter((x) => x !== o);
-    await saveOrgans(updated); setOrgans(updated); showMsg('Órgão/Setor removido.');
+    await run(async () => {
+      const updated = organs.filter((x) => x !== o);
+      await saveOrgans(updated); setOrgans(updated); showMsg('Órgão/Setor removido.');
+    });
   };
 
   const stats = useMemo(() => ({
