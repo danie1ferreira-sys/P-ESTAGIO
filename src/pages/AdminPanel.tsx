@@ -1,193 +1,252 @@
 import { useState, useEffect, useMemo } from 'react';
 import Logo from '../components/Logo';
-import { User, Role } from '../types';
 import {
-  getUsers,
-  addUser,
-  updateUser,
-  deleteUser,
-  getSystems,
-  saveSystems,
-  getOrgans,
-  saveOrgans,
-  getCalls,
-  generateId,
+  User, Role, Technician, FormConfig, GeneralConfig,
+  FormFieldKey, FORM_FIELD_LABELS, DEFAULT_FORM_CONFIG, DEFAULT_GENERAL_CONFIG,
+  ALL_PERMISSIONS, PERMISSION_META, DEFAULT_PERMISSIONS, UserPermissions,
+  resolvePermissions,
+} from '../types';
+import {
+  getUsers, addUser, updateUser, deleteUser, resetUserPassword, saveUserPermissions,
+  getTechnicians, addTechnician, updateTechnician, deleteTechnician,
+  getSystems, saveSystems, getOrgans, saveOrgans,
+  getCalls, generateId, generateDefaultPassword,
+  getFormConfig, saveFormConfig, getGeneralConfig, saveGeneralConfig,
 } from '../utils/storage';
 
-interface AdminPanelProps {
-  user: User;
-  onLogout: () => void;
-}
-
-type Tab = 'users' | 'systems' | 'organs' | 'stats';
+interface AdminPanelProps { user: User; onLogout: () => void; }
+type Tab = 'users' | 'technicians' | 'config' | 'lists';
 
 export default function AdminPanel({ user, onLogout }: AdminPanelProps) {
+  const perms = useMemo(() => resolvePermissions(user), [user]);
+
   const [activeTab, setActiveTab] = useState<Tab>('users');
   const [users, setUsers] = useState<User[]>([]);
+  const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [systems, setSystems] = useState<string[]>([]);
   const [organs, setOrgans] = useState<string[]>([]);
   const [callsCount, setCallsCount] = useState(0);
+  const [formConfig, setFormConfig] = useState<FormConfig>(DEFAULT_FORM_CONFIG);
+  const [generalConfig, setGeneralConfig] = useState<GeneralConfig>(DEFAULT_GENERAL_CONFIG);
   const [toast, setToast] = useState('');
 
-  // Modals & Forms State
+  // User modal
   const [showUserModal, setShowUserModal] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [userName, setUserName] = useState('');
   const [userUsername, setUserUsername] = useState('');
-  const [userPassword, setUserPassword] = useState('');
   const [userRole, setUserRole] = useState<Role>('intern');
+  const [generatedPassword, setGeneratedPassword] = useState('');
 
+  // Permissions modal
+  const [permissionsUser, setPermissionsUser] = useState<User | null>(null);
+  const [editPerms, setEditPerms] = useState<Required<UserPermissions>>({ ...DEFAULT_PERMISSIONS.intern });
+
+  // Reset password modal
+  const [resetUser, setResetUser] = useState<User | null>(null);
+  const [resetPwd, setResetPwd] = useState('');
+  const [resetMustChange, setResetMustChange] = useState(true);
+
+  // Technicians
+  const [newTechName, setNewTechName] = useState('');
+  const [editingTech, setEditingTech] = useState<Technician | null>(null);
+  const [editTechName, setEditTechName] = useState('');
+
+  // Options
   const [newSystem, setNewSystem] = useState('');
   const [newOrgan, setNewOrgan] = useState('');
 
-  const [deleteConfirmUser, setDeleteConfirmUser] = useState<User | null>(null);
+  // Delete confirm
+  const [deleteConfirm, setDeleteConfirm] = useState<User | null>(null);
+  const [deleteTechConfirm, setDeleteTechConfirm] = useState<Technician | null>(null);
+
+  useEffect(() => { loadData(); }, []);
+
+  const loadData = async () => {
+    try {
+      const [us, techs, sys, org, calls, fc, gc] = await Promise.all([
+        getUsers(), getTechnicians(), getSystems(), getOrgans(), getCalls(),
+        getFormConfig(), getGeneralConfig(),
+      ]);
+      setUsers(us); setTechnicians(techs); setSystems(sys); setOrgans(org);
+      setCallsCount(calls.length); setFormConfig(fc); setGeneralConfig(gc);
+    } catch (err) {
+      showMsg(err instanceof Error ? err.message : 'Erro ao carregar dados.');
+    }
+  };
+
+  const showMsg = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 4000); };
+
+  // ── User CRUD ──────────────────────────────────────────────────────────────
+
+  const openAddUser = () => {
+    setEditingUser(null); setUserName(''); setUserUsername('');
+    setUserRole('intern'); setGeneratedPassword(''); setShowUserModal(true);
+  };
+
+  const openEditUser = (u: User) => {
+    setEditingUser(u); setUserName(u.name); setUserUsername(u.username);
+    setUserRole(u.role); setGeneratedPassword(''); setShowUserModal(true);
+  };
+
+  const handleSaveUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userName.trim() || !userUsername.trim()) { showMsg('Preencha todos os campos.'); return; }
+    const uname = userUsername.trim().toLowerCase();
+    if (users.some((u) => u.username.toLowerCase() === uname && (!editingUser || u.id !== editingUser.id))) {
+      showMsg('Nome de usuário já em uso.'); return;
+    }
+    if (editingUser) {
+      await updateUser({ ...editingUser, name: userName.trim(), username: userUsername.trim(), role: userRole });
+      showMsg('Usuário atualizado!');
+      setShowUserModal(false);
+    } else {
+      const pwd = generateDefaultPassword(uname);
+      await addUser({ id: generateId(), name: userName.trim(), username: uname, password: pwd, role: userRole, mustChangePassword: true, permissions: {} });
+      setGeneratedPassword(pwd);
+    }
+    await loadData();
+  };
+
+  const handleDeleteUser = async (u: User) => {
+    if (u.id === user.id) { showMsg('Você não pode excluir sua própria conta.'); return; }
+    await deleteUser(u.id); setDeleteConfirm(null); showMsg('Usuário removido.'); await loadData();
+  };
+
+  // ── Permissions modal ──────────────────────────────────────────────────────
+
+  const openPermissions = (u: User) => {
+    setPermissionsUser(u);
+    setEditPerms({ ...DEFAULT_PERMISSIONS[u.role], ...(u.permissions ?? {}) } as Required<UserPermissions>);
+  };
+
+  const handleSavePermissions = async () => {
+    if (!permissionsUser) return;
+    // Save only overrides (values that differ from role defaults)
+    const defaults = DEFAULT_PERMISSIONS[permissionsUser.role];
+    const overrides: UserPermissions = {};
+    ALL_PERMISSIONS.forEach((p) => {
+      if (editPerms[p] !== defaults[p]) overrides[p] = editPerms[p];
+    });
+    await saveUserPermissions(permissionsUser.id, overrides);
+    showMsg(`Permissões de ${permissionsUser.name} salvas!`);
+    setPermissionsUser(null);
+    await loadData();
+  };
+
+  const resetPermissionsToDefault = () => {
+    if (!permissionsUser) return;
+    setEditPerms({ ...DEFAULT_PERMISSIONS[permissionsUser.role] } as Required<UserPermissions>);
+  };
+
+  // ── Reset Password modal ───────────────────────────────────────────────────
+
+  const openResetPwd = (u: User) => {
+    setResetUser(u); setResetPwd(generateDefaultPassword(u.username)); setResetMustChange(true);
+  };
+
+  const handleResetPwd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetUser || !resetPwd.trim()) { showMsg('Informe a nova senha.'); return; }
+    await resetUserPassword(resetUser.id, resetPwd.trim(), resetMustChange);
+    showMsg(`Senha de ${resetUser.name} redefinida!`);
+    setResetUser(null); await loadData();
+  };
+
+  // ── Technicians CRUD ───────────────────────────────────────────────────────
+
+  const handleAddTech = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTechName.trim()) return;
+    if (technicians.some((t) => t.name.toLowerCase() === newTechName.trim().toLowerCase())) {
+      showMsg('Técnico com este nome já existe.'); return;
+    }
+    await addTechnician({ id: generateId(), name: newTechName.trim() });
+    setNewTechName(''); showMsg('Técnico adicionado!'); await loadData();
+  };
+
+  const handleSaveTech = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTech || !editTechName.trim()) return;
+    await updateTechnician({ ...editingTech, name: editTechName.trim() });
+    setEditingTech(null); setEditTechName(''); showMsg('Técnico atualizado!'); await loadData();
+  };
+
+  const handleDeleteTech = async (t: Technician) => {
+    await deleteTechnician(t.id); setDeleteTechConfirm(null); showMsg('Técnico removido.'); await loadData();
+  };
+
+  // ── Form Config ────────────────────────────────────────────────────────────
+
+  const updateFieldConfig = (field: FormFieldKey, key: 'enabled' | 'required', value: boolean) => {
+    setFormConfig((prev) => ({ ...prev, [field]: { ...prev[field], [key]: value } }));
+  };
+
+  const handleSaveFormConfig = async () => {
+    await saveFormConfig(formConfig); showMsg('Configurações do formulário salvas!');
+  };
+
+  const handleResetFormConfig = () => { setFormConfig(DEFAULT_FORM_CONFIG); showMsg('Formulário resetado ao padrão.'); };
+
+  // ── General Config ─────────────────────────────────────────────────────────
+
+  const handleSaveGeneralConfig = async () => {
+    await saveGeneralConfig(generalConfig); showMsg('Configurações gerais salvas!');
+  };
+
+  // ── Options CRUD ───────────────────────────────────────────────────────────
+
+  const handleAddSystem = async (e: React.FormEvent) => {
+    e.preventDefault(); if (!newSystem.trim()) return;
+    if (systems.some((s) => s.toLowerCase() === newSystem.trim().toLowerCase())) { showMsg('Sistema já existe.'); return; }
+    const updated = [...systems, newSystem.trim()];
+    await saveSystems(updated); setSystems(updated); setNewSystem(''); showMsg('Sistema adicionado!');
+  };
+
+  const handleDeleteSystem = async (s: string) => {
+    const updated = systems.filter((x) => x !== s);
+    await saveSystems(updated); setSystems(updated); showMsg('Sistema removido.');
+  };
+
+  const handleAddOrgan = async (e: React.FormEvent) => {
+    e.preventDefault(); if (!newOrgan.trim()) return;
+    if (organs.some((o) => o.toLowerCase() === newOrgan.trim().toLowerCase())) { showMsg('Órgão já existe.'); return; }
+    const updated = [...organs, newOrgan.trim()];
+    await saveOrgans(updated); setOrgans(updated); setNewOrgan(''); showMsg('Órgão/Setor adicionado!');
+  };
+
+  const handleDeleteOrgan = async (o: string) => {
+    const updated = organs.filter((x) => x !== o);
+    await saveOrgans(updated); setOrgans(updated); showMsg('Órgão/Setor removido.');
+  };
+
+  const stats = useMemo(() => ({
+    total: users.length,
+    admins: users.filter((u) => u.role === 'admin').length,
+    supervisors: users.filter((u) => u.role === 'supervisor').length,
+    interns: users.filter((u) => u.role === 'intern').length,
+    technicians: technicians.length,
+    calls: callsCount,
+  }), [users, technicians, callsCount]);
+
+  // ── Tabs ───────────────────────────────────────────────────────────────────
+
+  const availableTabs = [
+    { id: 'users'       as Tab, label: 'Usuários',         icon: '👤', show: perms.canManageUsers },
+    { id: 'technicians' as Tab, label: 'Técnicos',         icon: '🔧', show: perms.canManageTechnicians },
+    { id: 'config'      as Tab, label: 'Configurações',    icon: '⚙️', show: perms.canManageSettings || perms.canViewStats },
+    { id: 'lists'       as Tab, label: 'Sistemas & Órgãos',icon: '📋', show: perms.canManageOptions },
+  ].filter((t) => t.show);
 
   useEffect(() => {
-    loadData();
+    if (availableTabs.length > 0 && !availableTabs.find((t) => t.id === activeTab)) {
+      setActiveTab(availableTabs[0].id);
+    }
   }, []);
 
-  const loadData = () => {
-    setUsers(getUsers());
-    setSystems(getSystems());
-    setOrgans(getOrgans());
-    setCallsCount(getCalls().length);
-  };
-
-  const showMessage = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(''), 3000);
-  };
-
-  // User Actions
-  const handleOpenAddUser = () => {
-    setEditingUser(null);
-    setUserName('');
-    setUserUsername('');
-    setUserPassword('');
-    setUserRole('intern');
-    setShowUserModal(true);
-  };
-
-  const handleOpenEditUser = (u: User) => {
-    setEditingUser(u);
-    setUserName(u.name);
-    setUserUsername(u.username);
-    setUserPassword(u.password);
-    setUserRole(u.role);
-    setShowUserModal(true);
-  };
-
-  const handleSaveUser = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!userName.trim() || !userUsername.trim() || !userPassword.trim()) {
-      showMessage('Preencha todos os campos do usuário.');
-      return;
-    }
-
-    const usernameLower = userUsername.trim().toLowerCase();
-    const isDuplicate = users.some(
-      (u) => u.username.toLowerCase() === usernameLower && (!editingUser || u.id !== editingUser.id)
-    );
-
-    if (isDuplicate) {
-      showMessage('Este nome de usuário já está em uso.');
-      return;
-    }
-
-    if (editingUser) {
-      const updated: User = {
-        ...editingUser,
-        name: userName.trim(),
-        username: userUsername.trim(),
-        password: userPassword.trim(),
-        role: userRole,
-      };
-      updateUser(updated);
-      showMessage('Usuário atualizado com sucesso!');
-    } else {
-      const newUser: User = {
-        id: generateId(),
-        name: userName.trim(),
-        username: userUsername.trim(),
-        password: userPassword.trim(),
-        role: userRole,
-      };
-      addUser(newUser);
-      showMessage('Usuário cadastrado com sucesso!');
-    }
-
-    setShowUserModal(false);
-    loadData();
-  };
-
-  const handleDeleteUser = (u: User) => {
-    if (u.id === user.id) {
-      showMessage('Você não pode excluir a sua própria conta de administrador.');
-      return;
-    }
-    deleteUser(u.id);
-    setDeleteConfirmUser(null);
-    showMessage('Usuário removido com sucesso.');
-    loadData();
-  };
-
-  // Systems Configuration
-  const handleAddSystem = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newSystem.trim()) return;
-    if (systems.some((s) => s.toLowerCase() === newSystem.trim().toLowerCase())) {
-      showMessage('Este sistema já existe.');
-      return;
-    }
-    const updated = [...systems, newSystem.trim()];
-    saveSystems(updated);
-    setSystems(updated);
-    setNewSystem('');
-    showMessage('Sistema adicionado com sucesso!');
-  };
-
-  const handleDeleteSystem = (sys: string) => {
-    const updated = systems.filter((s) => s !== sys);
-    saveSystems(updated);
-    setSystems(updated);
-    showMessage('Sistema removido.');
-  };
-
-  // Organs Configuration
-  const handleAddOrgan = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newOrgan.trim()) return;
-    if (organs.some((o) => o.toLowerCase() === newOrgan.trim().toLowerCase())) {
-      showMessage('Este órgão/setor já existe.');
-      return;
-    }
-    const updated = [...organs, newOrgan.trim()];
-    saveOrgans(updated);
-    setOrgans(updated);
-    setNewOrgan('');
-    showMessage('Órgão/Setor adicionado com sucesso!');
-  };
-
-  const handleDeleteOrgan = (org: string) => {
-    const updated = organs.filter((o) => o !== org);
-    saveOrgans(updated);
-    setOrgans(updated);
-    showMessage('Órgão/Setor removido.');
-  };
-
-  // Stats Breakdown
-  const stats = useMemo(() => {
-    const totalUsers = users.length;
-    const admins = users.filter((u) => u.role === 'admin').length;
-    const supervisors = users.filter((u) => u.role === 'supervisor').length;
-    const interns = users.filter((u) => u.role === 'intern').length;
-
-    return { totalUsers, admins, supervisors, interns };
-  }, [users]);
-
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/20 to-slate-50">
-      {/* Header */}
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-rose-50/20 to-slate-50">
       <header className="bg-white/80 backdrop-blur-lg border-b border-slate-200 sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
           <Logo size={42} />
@@ -199,11 +258,7 @@ export default function AdminPanel({ user, onLogout }: AdminPanelProps) {
             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-rose-500 to-rose-700 text-white font-semibold flex items-center justify-center text-sm shadow-md">
               {user.name.charAt(0)}
             </div>
-            <button
-              onClick={onLogout}
-              className="text-slate-500 hover:text-red-600 p-2 rounded-lg hover:bg-red-50 transition"
-              title="Sair"
-            >
+            <button onClick={onLogout} className="text-slate-500 hover:text-red-600 p-2 rounded-lg hover:bg-red-50 transition" title="Sair">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
               </svg>
@@ -213,65 +268,45 @@ export default function AdminPanel({ user, onLogout }: AdminPanelProps) {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
-        {/* Title */}
-        <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <div className="inline-flex items-center gap-2 bg-rose-50 text-rose-700 px-3 py-1 rounded-full text-xs font-medium mb-2">
-              <span className="w-1.5 h-1.5 bg-rose-600 rounded-full" />
-              Painel de Controle do Admin
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-slate-800">Configurações Gerais</h1>
-            <p className="text-slate-500 text-sm mt-1">Gerencie logins, senhas, cargos e estruture a página de chamados.</p>
+        <div className="mb-6">
+          <div className="inline-flex items-center gap-2 bg-rose-50 text-rose-700 px-3 py-1 rounded-full text-xs font-medium mb-2">
+            <span className="w-1.5 h-1.5 bg-rose-600 rounded-full" /> Painel de Controle
           </div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-800">Configurações Gerais</h1>
+          <p className="text-slate-500 text-sm mt-1">Gerencie usuários, técnicos, formulário e configurações do sistema.</p>
         </div>
 
-        {/* Tab Selection */}
-        <div className="flex border-b border-slate-200 mb-6 gap-2 overflow-x-auto pb-1">
-          <TabButton active={activeTab === 'users'} onClick={() => setActiveTab('users')} icon={
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-            </svg>
-          } label="Gerenciar Usuários" />
-          
-          <TabButton active={activeTab === 'systems'} onClick={() => setActiveTab('systems')} icon={
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 00-2 2z" />
-            </svg>
-          } label="Sistemas" />
-
-          <TabButton active={activeTab === 'organs'} onClick={() => setActiveTab('organs')} icon={
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-            </svg>
-          } label="Órgãos / Setores" />
-
-          <TabButton active={activeTab === 'stats'} onClick={() => setActiveTab('stats')} icon={
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10a2 2 0 01-2 2h-2a2 2 0 01-2-2zm9-8v10a2 2 0 01-2 2h-2a2 2 0 01-2-2V11a2 2 0 012-2h2a2 2 0 012 2z" />
-            </svg>
-          } label="Estatísticas" />
+        {/* Tabs */}
+        <div className="flex border-b border-slate-200 mb-6 gap-1 overflow-x-auto pb-1">
+          {availableTabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 whitespace-nowrap transition-all duration-200 ${
+                activeTab === tab.id
+                  ? 'border-rose-600 text-rose-600'
+                  : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+              }`}
+            >
+              <span>{tab.icon}</span> {tab.label}
+            </button>
+          ))}
         </div>
 
-        {/* Tab Content */}
-        <div className="bg-white rounded-3xl shadow-xl shadow-blue-900/5 border border-slate-100 overflow-hidden">
+        <div className="bg-white rounded-3xl shadow-xl shadow-slate-900/5 border border-slate-100 overflow-hidden">
           <div className="bg-gradient-to-r from-rose-500 to-rose-600 h-1.5" />
 
-          {/* TAB 1: USERS MANAGEMENT */}
+          {/* ── TAB: USERS ── */}
           {activeTab === 'users' && (
             <div className="p-6">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                 <div>
                   <h2 className="text-lg font-semibold text-slate-800">Contas de Usuários</h2>
-                  <p className="text-sm text-slate-500">Cadastre e altere logins, senhas e permissões de acesso.</p>
+                  <p className="text-sm text-slate-500">Gerencie logins, senhas, cargos e permissões individuais.</p>
                 </div>
-                <button
-                  onClick={handleOpenAddUser}
-                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-rose-500 to-rose-600 text-white font-semibold hover:from-rose-600 hover:to-rose-700 transition shadow-md shadow-rose-500/20 text-sm"
-                >
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-                  </svg>
-                  Adicionar Usuário
+                <button onClick={openAddUser} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-rose-500 to-rose-600 text-white font-semibold hover:from-rose-600 hover:to-rose-700 transition shadow-md shadow-rose-500/20 text-sm">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+                  Novo Usuário
                 </button>
               </div>
 
@@ -279,43 +314,38 @@ export default function AdminPanel({ user, onLogout }: AdminPanelProps) {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-50 text-slate-600 text-xs uppercase tracking-wider">
-                      <th className="px-6 py-3 text-left font-semibold">Nome</th>
-                      <th className="px-6 py-3 text-left font-semibold">Usuário (Login)</th>
-                      <th className="px-6 py-3 text-left font-semibold">Senha</th>
-                      <th className="px-6 py-3 text-left font-semibold">Cargo / Função</th>
-                      <th className="px-6 py-3 text-center font-semibold">Ações</th>
+                      <th className="px-4 py-3 text-left font-semibold">Nome</th>
+                      <th className="px-4 py-3 text-left font-semibold">Login</th>
+                      <th className="px-4 py-3 text-left font-semibold">Cargo</th>
+                      <th className="px-4 py-3 text-left font-semibold">Flags</th>
+                      <th className="px-4 py-3 text-center font-semibold">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {users.map((u) => (
-                      <tr key={u.id} className="hover:bg-slate-50/50 transition">
-                        <td className="px-6 py-4 font-medium text-slate-800">{u.name} {u.id === user.id && <span className="text-[10px] bg-slate-100 text-slate-500 py-0.5 px-2 rounded-full ml-1">Você</span>}</td>
-                        <td className="px-6 py-4 text-slate-600 font-mono">{u.username}</td>
-                        <td className="px-6 py-4 text-slate-600 font-mono">{u.password}</td>
-                        <td className="px-6 py-4">
-                          <RoleBadge role={u.role} />
+                      <tr key={u.id} className="hover:bg-slate-50/60 transition">
+                        <td className="px-4 py-3.5 font-medium text-slate-800">
+                          {u.name}
+                          {u.id === user.id && <span className="ml-1.5 text-[10px] bg-slate-100 text-slate-500 py-0.5 px-1.5 rounded-full">Você</span>}
                         </td>
-                        <td className="px-6 py-4 text-center">
-                          <div className="flex justify-center gap-2">
-                            <button
-                              onClick={() => handleOpenEditUser(u)}
-                              className="text-blue-600 hover:bg-blue-50 p-2 rounded-lg transition"
-                              title="Editar usuário"
-                            >
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                              </svg>
-                            </button>
-                            <button
-                              onClick={() => setDeleteConfirmUser(u)}
-                              disabled={u.id === user.id}
-                              className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition disabled:opacity-30 disabled:hover:bg-transparent"
-                              title="Excluir usuário"
-                            >
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                            </button>
+                        <td className="px-4 py-3.5 font-mono text-slate-600 text-xs">{u.username}</td>
+                        <td className="px-4 py-3.5"><RoleBadge role={u.role} /></td>
+                        <td className="px-4 py-3.5">
+                          <div className="flex flex-wrap gap-1">
+                            {u.mustChangePassword && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-50 border border-orange-100 text-orange-700 font-medium">🔑 Troca senha</span>
+                            )}
+                            {Object.keys(u.permissions ?? {}).length > 0 && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-50 border border-purple-100 text-purple-700 font-medium">✏️ Perms custom</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <div className="flex justify-center gap-1">
+                            <ActionBtn icon="✏️" title="Editar" color="blue" onClick={() => openEditUser(u)} />
+                            <ActionBtn icon="🔐" title="Permissões" color="purple" onClick={() => openPermissions(u)} />
+                            <ActionBtn icon="🔑" title="Redefinir senha" color="amber" onClick={() => openResetPwd(u)} />
+                            <ActionBtn icon="🗑️" title="Excluir" color="red" onClick={() => setDeleteConfirm(u)} disabled={u.id === user.id} />
                           </div>
                         </td>
                       </tr>
@@ -326,266 +356,422 @@ export default function AdminPanel({ user, onLogout }: AdminPanelProps) {
             </div>
           )}
 
-          {/* TAB 2: SYSTEMS CONFIG */}
-          {activeTab === 'systems' && (
+          {/* ── TAB: TECHNICIANS ── */}
+          {activeTab === 'technicians' && (
             <div className="p-6">
-              <h2 className="text-lg font-semibold text-slate-800 mb-1">Configurar Sistemas</h2>
-              <p className="text-sm text-slate-500 mb-6">Defina as opções de sistemas que aparecem no formulário de chamados.</p>
+              <div className="mb-6">
+                <h2 className="text-lg font-semibold text-slate-800">Técnicos de Suporte</h2>
+                <p className="text-sm text-slate-500">
+                  Técnicos não possuem login. Seus nomes aparecem como opção de auxílio no formulário dos estagiários.
+                </p>
+              </div>
 
-              <form onSubmit={handleAddSystem} className="flex gap-2 max-w-md mb-6">
+              <form onSubmit={handleAddTech} className="flex gap-2 max-w-md mb-6">
                 <input
-                  type="text"
-                  value={newSystem}
-                  onChange={(e) => setNewSystem(e.target.value)}
-                  placeholder="Nome do novo sistema (Ex: Patrimônio)"
+                  type="text" value={newTechName} onChange={(e) => setNewTechName(e.target.value)}
+                  placeholder="Nome do técnico"
                   className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-800 placeholder-slate-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 outline-none text-sm transition"
                 />
-                <button
-                  type="submit"
-                  className="px-4 py-2.5 bg-slate-800 text-white font-medium hover:bg-slate-900 rounded-xl transition text-sm flex items-center gap-1.5"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                  </svg>
+                <button type="submit" className="px-4 py-2.5 bg-slate-800 text-white font-medium hover:bg-slate-900 rounded-xl transition text-sm flex items-center gap-1.5">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
                   Adicionar
                 </button>
               </form>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                {systems.map((s) => (
-                  <div
-                    key={s}
-                    className="bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 flex items-center justify-between hover:border-slate-200 hover:bg-slate-100/30 transition"
-                  >
-                    <span className="text-slate-700 font-medium text-sm">{s}</span>
-                    <button
-                      onClick={() => handleDeleteSystem(s)}
-                      className="text-slate-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-white transition"
-                      title="Excluir sistema"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
-                  </div>
-                ))}
-              </div>
+              {technicians.length === 0 ? (
+                <div className="text-center py-10 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                  <div className="text-4xl mb-2">🔧</div>
+                  <p className="text-slate-500 text-sm">Nenhum técnico cadastrado ainda.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {technicians.map((t) => (
+                    <div key={t.id} className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 hover:border-amber-200 transition">
+                      {editingTech?.id === t.id ? (
+                        <form onSubmit={handleSaveTech} className="flex gap-2">
+                          <input
+                            type="text" value={editTechName} onChange={(e) => setEditTechName(e.target.value)}
+                            className="flex-1 px-2 py-1 text-sm rounded-lg border border-amber-300 outline-none"
+                            autoFocus
+                          />
+                          <button type="submit" className="text-green-600 hover:text-green-700 p-1">✓</button>
+                          <button type="button" onClick={() => setEditingTech(null)} className="text-slate-400 hover:text-slate-600 p-1">✕</button>
+                        </form>
+                      ) : (
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-white flex items-center justify-center text-xs font-bold">
+                              {t.name.charAt(0)}
+                            </div>
+                            <span className="text-sm font-medium text-slate-800">{t.name}</span>
+                          </div>
+                          <div className="flex gap-1">
+                            <button onClick={() => { setEditingTech(t); setEditTechName(t.name); }} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded-lg transition text-xs">✏️</button>
+                            <button onClick={() => setDeleteTechConfirm(t)} className="text-red-400 hover:bg-red-50 p-1.5 rounded-lg transition text-xs">🗑️</button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
-          {/* TAB 3: ORGANS CONFIG */}
-          {activeTab === 'organs' && (
-            <div className="p-6">
-              <h2 className="text-lg font-semibold text-slate-800 mb-1">Configurar Órgãos / Setores</h2>
-              <p className="text-sm text-slate-500 mb-6">Defina as opções de órgãos ou setores públicos atendidos pelo suporte.</p>
+          {/* ── TAB: CONFIG ── */}
+          {activeTab === 'config' && (
+            <div className="p-6 space-y-8">
+              {/* Form Config */}
+              {perms.canManageSettings && (
+                <section>
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h2 className="text-lg font-semibold text-slate-800">📋 Formulário de Chamados</h2>
+                      <p className="text-sm text-slate-500">Configure quais campos aparecem no formulário do estagiário.</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={handleResetFormConfig} className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition">
+                        Resetar padrão
+                      </button>
+                      <button onClick={handleSaveFormConfig} className="px-4 py-1.5 text-xs rounded-lg bg-rose-600 text-white font-semibold hover:bg-rose-700 transition">
+                        Salvar
+                      </button>
+                    </div>
+                  </div>
 
-              <form onSubmit={handleAddOrgan} className="flex gap-2 max-w-md mb-6">
-                <input
-                  type="text"
-                  value={newOrgan}
-                  onChange={(e) => setNewOrgan(e.target.value)}
-                  placeholder="Nome do órgão/setor (Ex: Secretaria de Saúde)"
-                  className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-800 placeholder-slate-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 outline-none text-sm transition"
-                />
-                <button
-                  type="submit"
-                  className="px-4 py-2.5 bg-slate-800 text-white font-medium hover:bg-slate-900 rounded-xl transition text-sm flex items-center gap-1.5"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                  </svg>
-                  Adicionar
-                </button>
-              </form>
+                  <div className="bg-slate-50 rounded-2xl border border-slate-100 overflow-hidden">
+                    <div className="grid grid-cols-[1fr_auto_auto] text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3 border-b border-slate-100">
+                      <span>Campo</span>
+                      <span className="w-20 text-center">Visível</span>
+                      <span className="w-24 text-center">Obrigatório</span>
+                    </div>
+                    {(Object.keys(FORM_FIELD_LABELS) as FormFieldKey[]).map((key) => {
+                      const meta = FORM_FIELD_LABELS[key];
+                      const cfg = formConfig[key];
+                      return (
+                        <div key={key} className="grid grid-cols-[1fr_auto_auto] items-center px-5 py-4 border-b border-slate-100 last:border-0 hover:bg-white/60 transition">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-base">{meta.icon}</span>
+                              <span className="text-sm font-medium text-slate-700">{meta.label}</span>
+                              {key === 'callNumber' && (
+                                <span className="text-[10px] bg-blue-50 text-blue-600 border border-blue-100 px-1.5 py-0.5 rounded-full">condicional</span>
+                              )}
+                            </div>
+                            {meta.note && <p className="text-xs text-slate-400 mt-0.5 ml-7">{meta.note}</p>}
+                          </div>
+                          <div className="w-20 flex justify-center">
+                            <Toggle
+                              checked={cfg.enabled}
+                              onChange={(v) => updateFieldConfig(key, 'enabled', v)}
+                              disabled={key === 'callNumber' ? false : false}
+                            />
+                          </div>
+                          <div className="w-24 flex justify-center">
+                            <input
+                              type="checkbox"
+                              checked={cfg.required}
+                              onChange={(e) => updateFieldConfig(key, 'required', e.target.checked)}
+                              disabled={!cfg.enabled}
+                              className="w-4 h-4 accent-rose-500 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                {organs.map((o) => (
-                  <div
-                    key={o}
-                    className="bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 flex items-center justify-between hover:border-slate-200 hover:bg-slate-100/30 transition"
-                  >
-                    <span className="text-slate-700 font-medium text-sm">{o}</span>
-                    <button
-                      onClick={() => handleDeleteOrgan(o)}
-                      className="text-slate-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-white transition"
-                      title="Excluir órgão/setor"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
+                  <div className="mt-2 flex items-center gap-2 text-xs text-slate-400">
+                    <span className="w-3 h-3 rounded-full bg-rose-400 inline-block" />
+                    Data e Hora são sempre exibidos e obrigatórios.
+                  </div>
+                </section>
+              )}
+
+              {/* General Config */}
+              {perms.canManageSettings && (
+                <section>
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h2 className="text-lg font-semibold text-slate-800">⚙️ Configurações Gerais</h2>
+                      <p className="text-sm text-slate-500">Comportamento geral do sistema para todos os painéis.</p>
+                    </div>
+                    <button onClick={handleSaveGeneralConfig} className="px-4 py-1.5 text-xs rounded-lg bg-rose-600 text-white font-semibold hover:bg-rose-700 transition">
+                      Salvar
                     </button>
                   </div>
-                ))}
-              </div>
+
+                  <div className="bg-slate-50 rounded-2xl border border-slate-100 divide-y divide-slate-100 overflow-hidden">
+                    <ConfigRow
+                      label="Auto-refresh no painel do supervisor"
+                      description="Atualiza automaticamente a lista de chamados"
+                    >
+                      <Toggle
+                        checked={generalConfig.supervisorAutoRefresh}
+                        onChange={(v) => setGeneralConfig((p) => ({ ...p, supervisorAutoRefresh: v }))}
+                      />
+                    </ConfigRow>
+
+                    {generalConfig.supervisorAutoRefresh && (
+                      <ConfigRow label="Intervalo de atualização" description="Tempo em segundos entre cada refresh">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number" min={5} max={300}
+                            value={generalConfig.supervisorAutoRefreshInterval}
+                            onChange={(e) => setGeneralConfig((p) => ({ ...p, supervisorAutoRefreshInterval: Number(e.target.value) }))}
+                            className="w-20 px-2 py-1.5 rounded-lg border border-slate-200 text-sm text-center outline-none focus:border-rose-400"
+                          />
+                          <span className="text-xs text-slate-500">segundos</span>
+                        </div>
+                      </ConfigRow>
+                    )}
+
+                    <ConfigRow
+                      label="Mostrar últimos chamados no painel do estagiário"
+                      description="Exibe os 5 chamados mais recentes abaixo do formulário"
+                    >
+                      <Toggle
+                        checked={generalConfig.showRecentCallsInIntern}
+                        onChange={(v) => setGeneralConfig((p) => ({ ...p, showRecentCallsInIntern: v }))}
+                      />
+                    </ConfigRow>
+                  </div>
+                </section>
+              )}
+
+              {/* Stats */}
+              {perms.canViewStats && (
+                <section>
+                  <h2 className="text-lg font-semibold text-slate-800 mb-4">📊 Estatísticas</h2>
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                    <StatMini label="Usuários" value={stats.total} icon="👥" />
+                    <StatMini label="Estagiários" value={stats.interns} icon="👨‍💻" />
+                    <StatMini label="Supervisores" value={stats.supervisors} icon="👩‍💼" />
+                    <StatMini label="Admins" value={stats.admins} icon="🛡️" />
+                    <StatMini label="Técnicos" value={stats.technicians} icon="🔧" />
+                    <StatMini label="Chamados" value={stats.calls} icon="📝" />
+                  </div>
+                </section>
+              )}
             </div>
           )}
 
-          {/* TAB 4: STATS */}
-          {activeTab === 'stats' && (
-            <div className="p-6">
-              <h2 className="text-lg font-semibold text-slate-800 mb-1">Métricas Gerais</h2>
-              <p className="text-sm text-slate-500 mb-6">Métricas de controle do sistema.</p>
-
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                <StatCardMini label="Total de Usuários" value={stats.totalUsers} icon="👥" />
-                <StatCardMini label="Total de Estagiários" value={stats.interns} icon="👨‍💻" />
-                <StatCardMini label="Supervisores" value={stats.supervisors} icon="👩‍💼" />
-                <StatCardMini label="Chamados Registrados" value={callsCount} icon="📝" />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
-                <div className="bg-slate-50 rounded-2xl p-5 border border-slate-100">
-                  <h3 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-blue-500" />
-                    Sistemas Cadastrados ({systems.length})
-                  </h3>
-                  <div className="text-sm text-slate-600 max-h-60 overflow-y-auto space-y-1">
-                    {systems.map((s, i) => (
-                      <div key={s} className="bg-white px-3 py-1.5 rounded-lg border border-slate-100 flex justify-between">
-                        <span>{s}</span>
-                        <span className="text-slate-400 font-mono text-xs">#{i + 1}</span>
-                      </div>
-                    ))}
-                  </div>
+          {/* ── TAB: LISTS ── */}
+          {activeTab === 'lists' && (
+            <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Systems */}
+              <section>
+                <h2 className="text-base font-semibold text-slate-800 mb-1">💻 Sistemas</h2>
+                <p className="text-sm text-slate-500 mb-4">Opções de sistema no formulário de chamados.</p>
+                <form onSubmit={handleAddSystem} className="flex gap-2 mb-4">
+                  <input type="text" value={newSystem} onChange={(e) => setNewSystem(e.target.value)} placeholder="Novo sistema..."
+                    className="flex-1 px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-slate-800 placeholder-slate-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 outline-none text-sm transition" />
+                  <button type="submit" className="px-3 py-2 bg-slate-800 text-white rounded-xl hover:bg-slate-900 transition text-sm font-medium">+ Adicionar</button>
+                </form>
+                <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                  {systems.map((s) => (
+                    <div key={s} className="flex items-center justify-between bg-slate-50 border border-slate-100 rounded-xl px-4 py-2.5 hover:border-slate-200 transition">
+                      <span className="text-sm text-slate-700">{s}</span>
+                      <button onClick={() => handleDeleteSystem(s)} className="text-slate-400 hover:text-red-500 p-1 rounded-lg hover:bg-white transition text-xs">🗑️</button>
+                    </div>
+                  ))}
                 </div>
+              </section>
 
-                <div className="bg-slate-50 rounded-2xl p-5 border border-slate-100">
-                  <h3 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                    Órgãos Atendidos ({organs.length})
-                  </h3>
-                  <div className="text-sm text-slate-600 max-h-60 overflow-y-auto space-y-1">
-                    {organs.map((o, i) => (
-                      <div key={o} className="bg-white px-3 py-1.5 rounded-lg border border-slate-100 flex justify-between">
-                        <span>{o}</span>
-                        <span className="text-slate-400 font-mono text-xs">#{i + 1}</span>
-                      </div>
-                    ))}
-                  </div>
+              {/* Organs */}
+              <section>
+                <h2 className="text-base font-semibold text-slate-800 mb-1">🏢 Órgãos / Setores</h2>
+                <p className="text-sm text-slate-500 mb-4">Órgãos e setores públicos atendidos pelo suporte.</p>
+                <form onSubmit={handleAddOrgan} className="flex gap-2 mb-4">
+                  <input type="text" value={newOrgan} onChange={(e) => setNewOrgan(e.target.value)} placeholder="Novo órgão/setor..."
+                    className="flex-1 px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-slate-800 placeholder-slate-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 outline-none text-sm transition" />
+                  <button type="submit" className="px-3 py-2 bg-slate-800 text-white rounded-xl hover:bg-slate-900 transition text-sm font-medium">+ Adicionar</button>
+                </form>
+                <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                  {organs.map((o) => (
+                    <div key={o} className="flex items-center justify-between bg-slate-50 border border-slate-100 rounded-xl px-4 py-2.5 hover:border-slate-200 transition">
+                      <span className="text-sm text-slate-700">{o}</span>
+                      <button onClick={() => handleDeleteOrgan(o)} className="text-slate-400 hover:text-red-500 p-1 rounded-lg hover:bg-white transition text-xs">🗑️</button>
+                    </div>
+                  ))}
                 </div>
-              </div>
+              </section>
             </div>
           )}
         </div>
       </main>
 
-      {/* USER FORM MODAL (ADD / EDIT) */}
+      {/* ── MODAL: ADD / EDIT USER ── */}
       {showUserModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out]">
-          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden animate-[slideUp_0.3s_ease-out]">
-            <div className="bg-slate-800 px-6 py-4 flex items-center justify-between text-white">
-              <h3 className="font-bold text-lg">{editingUser ? 'Editar Usuário' : 'Novo Usuário'}</h3>
-              <button onClick={() => setShowUserModal(false)} className="text-slate-400 hover:text-white transition">
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveUser} className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Nome Completo</label>
-                <input
-                  type="text"
-                  value={userName}
-                  onChange={(e) => setUserName(e.target.value)}
-                  placeholder="Nome do usuário"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-800 placeholder-slate-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 outline-none text-sm transition"
-                  required
-                />
+        <Modal title={editingUser ? 'Editar Usuário' : 'Novo Usuário'} onClose={() => { setShowUserModal(false); setGeneratedPassword(''); }}>
+          <form onSubmit={handleSaveUser} className="space-y-4">
+            <FormField label="Nome Completo">
+              <input type="text" value={userName} onChange={(e) => setUserName(e.target.value)} placeholder="Nome do usuário" required
+                className="modal-input" />
+            </FormField>
+            <FormField label="Login (usuário)">
+              <input type="text" value={userUsername} onChange={(e) => setUserUsername(e.target.value)} placeholder="Ex: joaosilva" required
+                className="modal-input font-mono" disabled={!!editingUser} />
+            </FormField>
+            {!editingUser && !generatedPassword && (
+              <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-700 flex items-start gap-2">
+                <span className="mt-0.5">ℹ️</span>
+                Senha inicial gerada automaticamente: <strong>gpi@login{new Date().getFullYear()}</strong>. Usuário troca no primeiro acesso.
               </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Nome de Usuário (Login)</label>
-                <input
-                  type="text"
-                  value={userUsername}
-                  onChange={(e) => setUserUsername(e.target.value)}
-                  placeholder="Ex: joaosilva"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-800 placeholder-slate-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 outline-none text-sm transition font-mono"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Senha de Acesso</label>
-                <input
-                  type="text"
-                  value={userPassword}
-                  onChange={(e) => setUserPassword(e.target.value)}
-                  placeholder="Senha forte"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-800 placeholder-slate-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 outline-none text-sm transition font-mono"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Cargo / Permissão</label>
-                <select
-                  value={userRole}
-                  onChange={(e) => setUserRole(e.target.value as Role)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-800 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 outline-none text-sm transition"
-                >
-                  <option value="intern">Estagiário (Registra chamados)</option>
-                  <option value="supervisor">Supervisor (Gera planilhas e visualiza)</option>
-                  <option value="admin">Administrador (Acesso total)</option>
-                </select>
-              </div>
-
-              <div className="flex gap-3 pt-2">
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-rose-500 to-rose-600 text-white font-semibold hover:from-rose-600 hover:to-rose-700 transition shadow-md shadow-rose-500/30 text-sm"
-                >
-                  Salvar
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowUserModal(false)}
-                  className="flex-1 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50 transition text-sm"
-                >
-                  Cancelar
+            )}
+            {generatedPassword && (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+                <div className="text-xs font-semibold text-emerald-700 mb-1">✅ Usuário criado! Anote a senha inicial:</div>
+                <div className="font-mono text-base font-bold text-emerald-800 bg-white rounded-lg px-3 py-2 border border-emerald-200 select-all">{generatedPassword}</div>
+                <p className="text-xs text-emerald-600 mt-1.5">O usuário precisará criar uma nova senha no primeiro acesso.</p>
+                <button type="button" onClick={() => { setShowUserModal(false); setGeneratedPassword(''); }}
+                  className="mt-3 w-full py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition">
+                  Concluir
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
+            )}
+            {!generatedPassword && (
+              <>
+                <FormField label="Cargo / Permissão">
+                  <select value={userRole} onChange={(e) => setUserRole(e.target.value as Role)} className="modal-input">
+                    <option value="intern">Estagiário — Registra chamados</option>
+                    <option value="supervisor">Supervisor — Visualiza e exporta</option>
+                    <option value="admin">Administrador — Acesso ao painel de controle</option>
+                  </select>
+                </FormField>
+                <div className="flex gap-3 pt-1">
+                  <button type="submit" className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-rose-500 to-rose-600 text-white font-semibold hover:from-rose-600 hover:to-rose-700 transition text-sm">Salvar</button>
+                  <button type="button" onClick={() => setShowUserModal(false)} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50 transition text-sm">Cancelar</button>
+                </div>
+              </>
+            )}
+          </form>
+        </Modal>
       )}
 
-      {/* DELETE CONFIRMATION MODAL */}
-      {deleteConfirmUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out]">
-          <div className="bg-white rounded-3xl shadow-2xl max-w-sm w-full p-8 text-center animate-[slideUp_0.3s_ease-out]">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-50 text-red-600 flex items-center justify-center">
-              <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-            </div>
-            <h3 className="text-xl font-bold text-slate-800 mb-2">Confirmar Exclusão</h3>
-            <p className="text-slate-500 text-sm mb-6">
-              Tem certeza que deseja remover o usuário <strong>{deleteConfirmUser.name}</strong>? Essa ação é permanente.
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => handleDeleteUser(deleteConfirmUser)}
-                className="flex-1 py-2.5 rounded-xl bg-red-600 text-white font-semibold hover:bg-red-700 transition"
-              >
-                Excluir
+      {/* ── MODAL: PERMISSIONS ── */}
+      {permissionsUser && (
+        <Modal title={`Permissões — ${permissionsUser.name}`} onClose={() => setPermissionsUser(null)} wide>
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
+              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-400 to-purple-600 text-white flex items-center justify-center text-sm font-bold">
+                {permissionsUser.name.charAt(0)}
+              </div>
+              <div>
+                <div className="text-sm font-semibold text-slate-800">{permissionsUser.name}</div>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <RoleBadge role={permissionsUser.role} />
+                  <span className="text-xs text-slate-400">— padrões do cargo marcados em cinza</span>
+                </div>
+              </div>
+              <button onClick={resetPermissionsToDefault} className="ml-auto text-xs text-purple-600 hover:text-purple-800 border border-purple-200 hover:border-purple-400 px-2.5 py-1 rounded-lg transition">
+                Resetar padrão
               </button>
-              <button
-                onClick={() => setDeleteConfirmUser(null)}
-                className="flex-1 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50 transition"
-              >
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {ALL_PERMISSIONS.map((perm) => {
+                const meta = PERMISSION_META[perm];
+                const roleDefault = DEFAULT_PERMISSIONS[permissionsUser.role][perm];
+                const current = editPerms[perm] ?? roleDefault;
+                const isOverridden = (permissionsUser.permissions ?? {})[perm] !== undefined;
+                return (
+                  <label key={perm} className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition ${
+                    current ? 'bg-purple-50 border-purple-100' : 'bg-slate-50 border-slate-100'
+                  } hover:border-purple-200`}>
+                    <input
+                      type="checkbox"
+                      checked={current}
+                      onChange={(e) => setEditPerms((prev) => ({ ...prev, [perm]: e.target.checked }))}
+                      className="w-4 h-4 accent-purple-600 mt-0.5 cursor-pointer"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm">{meta.icon}</span>
+                        <span className="text-sm font-medium text-slate-800">{meta.label}</span>
+                        {isOverridden && <span className="text-[10px] bg-purple-100 text-purple-600 px-1 py-0.5 rounded">custom</span>}
+                        {!isOverridden && <span className="text-[10px] text-slate-400">(padrão)</span>}
+                      </div>
+                      <p className="text-xs text-slate-500 mt-0.5">{meta.description}</p>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+
+            <div className="flex gap-3 pt-1">
+              <button onClick={handleSavePermissions} className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-purple-500 to-purple-600 text-white font-semibold hover:from-purple-600 hover:to-purple-700 transition text-sm">
+                Salvar Permissões
+              </button>
+              <button onClick={() => setPermissionsUser(null)} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50 transition text-sm">
                 Cancelar
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
+      )}
+
+      {/* ── MODAL: RESET PASSWORD ── */}
+      {resetUser && (
+        <Modal title={`Redefinir Senha — ${resetUser.name}`} onClose={() => setResetUser(null)}>
+          <form onSubmit={handleResetPwd} className="space-y-4">
+            <FormField label="Nova Senha">
+              <div className="flex gap-2">
+                <input type="text" value={resetPwd} onChange={(e) => setResetPwd(e.target.value)} placeholder="Nova senha" required
+                  className="flex-1 modal-input font-mono" />
+                <button type="button" onClick={() => setResetPwd(generateDefaultPassword(resetUser.username))}
+                  className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-medium transition">
+                  Gerar
+                </button>
+              </div>
+            </FormField>
+            <label className="flex items-start gap-3 cursor-pointer p-3 rounded-xl border border-slate-100 hover:bg-slate-50 transition">
+              <input type="checkbox" checked={resetMustChange} onChange={(e) => setResetMustChange(e.target.checked)}
+                className="w-4 h-4 accent-amber-500 cursor-pointer mt-0.5" />
+              <div>
+                <div className="text-sm font-medium text-slate-700">Obrigar troca de senha no próximo login</div>
+                <div className="text-xs text-slate-500">O usuário será solicitado a criar uma nova senha</div>
+              </div>
+            </label>
+            <div className="flex gap-3 pt-1">
+              <button type="submit" className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-white font-semibold hover:from-amber-600 hover:to-amber-700 transition text-sm">Redefinir</button>
+              <button type="button" onClick={() => setResetUser(null)} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50 transition text-sm">Cancelar</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* ── MODAL: DELETE USER ── */}
+      {deleteConfirm && (
+        <Modal title="Confirmar Exclusão" onClose={() => setDeleteConfirm(null)}>
+          <div className="text-center py-2">
+            <div className="w-14 h-14 mx-auto mb-3 rounded-full bg-red-50 flex items-center justify-center text-2xl">⚠️</div>
+            <p className="text-slate-600 text-sm mb-6">Remover <strong>{deleteConfirm.name}</strong>? Essa ação é permanente.</p>
+            <div className="flex gap-3">
+              <button onClick={() => handleDeleteUser(deleteConfirm)} className="flex-1 py-2.5 rounded-xl bg-red-600 text-white font-semibold hover:bg-red-700 transition text-sm">Excluir</button>
+              <button onClick={() => setDeleteConfirm(null)} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50 transition text-sm">Cancelar</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── MODAL: DELETE TECH ── */}
+      {deleteTechConfirm && (
+        <Modal title="Remover Técnico" onClose={() => setDeleteTechConfirm(null)}>
+          <div className="text-center py-2">
+            <div className="w-14 h-14 mx-auto mb-3 rounded-full bg-red-50 flex items-center justify-center text-2xl">🔧</div>
+            <p className="text-slate-600 text-sm mb-6">Remover o técnico <strong>{deleteTechConfirm.name}</strong>?</p>
+            <div className="flex gap-3">
+              <button onClick={() => handleDeleteTech(deleteTechConfirm)} className="flex-1 py-2.5 rounded-xl bg-red-600 text-white font-semibold hover:bg-red-700 transition text-sm">Remover</button>
+              <button onClick={() => setDeleteTechConfirm(null)} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50 transition text-sm">Cancelar</button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {/* Toast */}
       {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-800 text-white px-5 py-3 rounded-xl shadow-2xl text-sm font-medium animate-[slideUp_0.3s_ease-out]">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-800 text-white px-5 py-3 rounded-xl shadow-2xl text-sm font-medium animate-[slideUp_0.3s_ease-out] max-w-sm text-center">
           {toast}
         </div>
       )}
@@ -593,48 +779,94 @@ export default function AdminPanel({ user, onLogout }: AdminPanelProps) {
   );
 }
 
-interface TabButtonProps {
-  active: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  label: string;
+// ── Sub-components ──────────────────────────────────────────────────────────
+
+function Modal({ title, children, onClose, wide }: { title: string; children: React.ReactNode; onClose: () => void; wide?: boolean }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out]">
+      <div className={`bg-white rounded-3xl shadow-2xl w-full overflow-hidden animate-[slideUp_0.3s_ease-out] ${wide ? 'max-w-2xl' : 'max-w-md'}`}>
+        <div className="bg-slate-800 px-6 py-4 flex items-center justify-between text-white">
+          <h3 className="font-bold text-base">{title}</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-white transition">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="p-6">{children}</div>
+      </div>
+    </div>
+  );
 }
 
-function TabButton({ active, onClick, icon, label }: TabButtonProps) {
+function FormField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={() => !disabled && onChange(!checked)}
+      disabled={disabled}
+      className={`relative inline-flex w-10 h-5.5 items-center rounded-full transition-colors duration-200 focus:outline-none ${
+        checked ? 'bg-rose-500' : 'bg-slate-200'
+      } ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+    >
+      <span className={`inline-block w-4 h-4 transform bg-white rounded-full shadow transition-transform duration-200 ${checked ? 'translate-x-5' : 'translate-x-1'}`} />
+    </button>
+  );
+}
+
+function ConfigRow({ label, description, children }: { label: string; description: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between px-5 py-4">
+      <div>
+        <div className="text-sm font-medium text-slate-700">{label}</div>
+        <div className="text-xs text-slate-500 mt-0.5">{description}</div>
+      </div>
+      <div className="ml-4 flex-shrink-0">{children}</div>
+    </div>
+  );
+}
+
+function ActionBtn({ icon, title, color, onClick, disabled }: {
+  icon: string; title: string; color: string; onClick: () => void; disabled?: boolean;
+}) {
+  const colors: Record<string, string> = {
+    blue:   'text-blue-600 hover:bg-blue-50',
+    purple: 'text-purple-600 hover:bg-purple-50',
+    amber:  'text-amber-600 hover:bg-amber-50',
+    red:    'text-red-500 hover:bg-red-50',
+  };
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 whitespace-nowrap transition-all duration-200 ${
-        active
-          ? 'border-rose-600 text-rose-600'
-          : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-      }`}
+      disabled={disabled}
+      title={title}
+      className={`p-1.5 rounded-lg transition text-sm ${colors[color]} disabled:opacity-30 disabled:pointer-events-none`}
     >
       {icon}
-      {label}
     </button>
   );
 }
 
 function RoleBadge({ role }: { role: Role }) {
-  const styles = {
-    admin: 'bg-rose-50 text-rose-700 border-rose-100',
-    supervisor: 'bg-indigo-50 text-indigo-700 border-indigo-100',
-    intern: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+  const map = {
+    admin:      { style: 'bg-rose-50 text-rose-700 border-rose-100',    label: 'Admin' },
+    supervisor: { style: 'bg-indigo-50 text-indigo-700 border-indigo-100', label: 'Supervisor' },
+    intern:     { style: 'bg-emerald-50 text-emerald-700 border-emerald-100', label: 'Estagiário' },
   };
-  const labels = {
-    admin: 'Administrador',
-    supervisor: 'Supervisor',
-    intern: 'Estagiário',
-  };
-  return (
-    <span className={`inline-block px-2.5 py-0.5 rounded-full border text-xs font-semibold ${styles[role]}`}>
-      {labels[role]}
-    </span>
-  );
+  const { style, label } = map[role];
+  return <span className={`inline-block px-2 py-0.5 rounded-full border text-xs font-semibold ${style}`}>{label}</span>;
 }
 
-function StatCardMini({ label, value, icon }: { label: string; value: number; icon: string }) {
+function StatMini({ label, value, icon }: { label: string; value: number; icon: string }) {
   return (
     <div className="bg-slate-50 rounded-2xl border border-slate-100 p-4 flex items-center justify-between">
       <div>

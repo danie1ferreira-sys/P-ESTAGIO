@@ -20,15 +20,35 @@ export default function SupervisorPanel({ user, onLogout }: SupervisorPanelProps
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [systems, setSystems] = useState<string[]>([]);
   const [organs, setOrgans] = useState<string[]>([]);
-  const interns = getInterns();
+  const [interns, setInterns] = useState<User[]>([]);
+
+  const loadData = async () => {
+    const [allCalls, sys, org, allInterns] = await Promise.all([
+      getCalls(),
+      getSystems(),
+      getOrgans(),
+      getInterns(),
+    ]);
+    setCalls(allCalls);
+    setSystems(sys);
+    setOrgans(org);
+    setInterns(allInterns);
+  };
+
+  const refreshCalls = async () => {
+    const allCalls = await getCalls();
+    setCalls(allCalls);
+  };
 
   useEffect(() => {
-    setCalls(getCalls());
-    setSystems(getSystems());
-    setOrgans(getOrgans());
-    // Refresh every 3 seconds to catch new calls from other "sessions"
-    const int = setInterval(() => setCalls(getCalls()), 3000);
-    return () => clearInterval(int);
+    loadData().then(async () => {
+      // Use dynamic auto-refresh config from admin settings
+      const gc = await import('../utils/storage').then((m) => m.getGeneralConfig());
+      if (gc.supervisorAutoRefresh) {
+        const interval = setInterval(() => { void refreshCalls(); }, gc.supervisorAutoRefreshInterval * 1000);
+        return () => clearInterval(interval);
+      }
+    });
   }, []);
 
   const filtered = useMemo(() => {
