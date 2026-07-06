@@ -11,6 +11,7 @@ interface FormState {
   ticketOpened: 'sim' | 'nao' | '';
   callNumber: string;
   organ: string; system: string;
+  baseEntity: string;
   description: string; solution: string;
   receivedHelp: 'sim' | 'nao' | '';
   helperName: string;
@@ -22,7 +23,7 @@ const emptyForm = (): FormState => {
     date: now.toISOString().slice(0, 10),
     time: now.toTimeString().slice(0, 5),
     ticketOpened: '', callNumber: '',
-    organ: '', system: '', description: '', solution: '',
+    organ: '', system: '', baseEntity: '', description: '', solution: '',
     receivedHelp: '', helperName: '',
   };
 };
@@ -83,7 +84,7 @@ export default function InternPanel({ user, onLogout }: InternPanelProps) {
     const newCall: CallRecord = {
       id: generateId(), date: form.date, time: form.time,
       callNumber: form.ticketOpened === 'sim' ? form.callNumber : '',
-      organ: form.organ, system: form.system,
+      organ: form.organ, system: form.system, baseEntity: form.baseEntity,
       description: form.description, solution: form.solution,
       receivedHelp: form.receivedHelp as 'sim' | 'nao',
       helperName: form.receivedHelp === 'sim' ? form.helperName : undefined,
@@ -183,6 +184,17 @@ export default function InternPanel({ user, onLogout }: InternPanelProps) {
                 )}
               </div>
             )}
+
+            {/* Base / Entidade */}
+            <Field label="Base / Entidade">
+              <input
+                type="text"
+                value={form.baseEntity}
+                onChange={(e) => update('baseEntity', e.target.value)}
+                placeholder="Ex.: Prefeitura Municipal de..."
+                className="form-input"
+              />
+            </Field>
 
             {/* Descrição & Solução */}
             {(formConfig.description.enabled || formConfig.solution.enabled) && (

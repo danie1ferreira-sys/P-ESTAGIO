@@ -68,6 +68,7 @@ type CallRow = {
   call_number: string;
   organ: string;
   system: string;
+  base_entity: string;
   description: string;
   solution: string;
   received_help: 'sim' | 'nao';
@@ -105,7 +106,8 @@ const toUserRow = (user: User): UserRow => ({
 
 const toCall = (row: CallRow): CallRecord => ({
   id: row.id, date: row.date, time: row.time, callNumber: row.call_number,
-  organ: row.organ, system: row.system, description: row.description,
+  organ: row.organ, system: row.system, baseEntity: row.base_entity ?? '',
+  description: row.description,
   solution: row.solution, receivedHelp: row.received_help,
   helperName: row.helper_name ?? undefined,
   internId: row.intern_id, internName: row.intern_name, createdAt: row.created_at,
@@ -113,7 +115,8 @@ const toCall = (row: CallRow): CallRecord => ({
 
 const toCallRow = (call: CallRecord): CallRow => ({
   id: call.id, date: call.date, time: call.time, call_number: call.callNumber,
-  organ: call.organ, system: call.system, description: call.description,
+  organ: call.organ, system: call.system, base_entity: call.baseEntity ?? '',
+  description: call.description,
   solution: call.solution, received_help: call.receivedHelp,
   helper_name: call.helperName ?? null,
   intern_id: call.internId, intern_name: call.internName, created_at: call.createdAt,

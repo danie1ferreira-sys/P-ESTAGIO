@@ -103,6 +103,7 @@ export interface CallRecord {
   callNumber: string;
   organ: string;
   system: string;
+  baseEntity: string;
   description: string;
   solution: string;
   receivedHelp: 'sim' | 'nao';

@@ -83,6 +83,7 @@ export default function SupervisorPanel({ user, onLogout }: SupervisorPanelProps
       'Número do Chamado': c.callNumber,
       'Órgão / Setor': c.organ,
       'Sistema Atendido': c.system,
+      'Base / Entidade': c.baseEntity || '',
       'Descrição do Atendimento': c.description,
       'Solução Aplicada': c.solution,
       'Recebeu ajuda?': c.receivedHelp === 'sim' ? 'Sim' : 'Não',
@@ -92,7 +93,7 @@ export default function SupervisorPanel({ user, onLogout }: SupervisorPanelProps
     // Set column widths
     ws['!cols'] = [
       { wch: 12 }, { wch: 8 }, { wch: 25 }, { wch: 18 }, { wch: 25 },
-      { wch: 22 }, { wch: 50 }, { wch: 50 }, { wch: 15 }, { wch: 25 },
+      { wch: 22 }, { wch: 30 }, { wch: 50 }, { wch: 50 }, { wch: 15 }, { wch: 25 },
     ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Chamados');
@@ -329,6 +330,7 @@ export default function SupervisorPanel({ user, onLogout }: SupervisorPanelProps
                     </div>
                     <div className="text-sm text-slate-700 mb-1">{c.internName}</div>
                     <div className="text-xs text-slate-500">{c.organ}</div>
+                    {c.baseEntity && <div className="text-xs text-slate-400 mt-0.5">📍 {c.baseEntity}</div>}
                     <button
                       onClick={() => setExpandedId(expandedId === c.id ? null : c.id)}
                       className="mt-2 text-blue-600 text-xs font-medium"
@@ -361,6 +363,7 @@ export default function SupervisorPanel({ user, onLogout }: SupervisorPanelProps
                       <DetailItem label="Data e Hora" value={`${c.date} ${c.time}`} />
                       <DetailItem label="Órgão" value={c.organ} />
                       <DetailItem label="Sistema" value={c.system} />
+                      {c.baseEntity && <DetailItem label="Base / Entidade" value={c.baseEntity} />}
                       <DetailItem label="Recebeu ajuda?" value={c.receivedHelp === 'sim' ? `Sim - ${c.helperName}` : 'Não'} />
                       <DetailItem label="Número" value={c.callNumber} />
                     </div>
