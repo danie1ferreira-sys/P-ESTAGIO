@@ -7,6 +7,31 @@ import { supabase, isSupabaseConfigured } from './supabaseClient';
 
 const SESSION_KEY = 'gpi_session';
 
+// URL da Edge Function de técnicos (usa Service Role Key no servidor — bypassa RLS)
+const TECHNICIANS_FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/technicians`;
+
+// Helper para chamar a Edge Function autenticada com a anon key
+async function callTechniciansFunction(
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  body?: object,
+): Promise<Response> {
+  const res = await fetch(TECHNICIANS_FUNCTION_URL, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+      'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY as string,
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error ?? `Erro HTTP ${res.status}`);
+  }
+  return res;
+}
+
 const USERS_TABLE       = 'app_users';
 const CALLS_TABLE       = 'call_records';
 const SYSTEMS_TABLE     = 'system_options';
@@ -216,33 +241,28 @@ export function getSession(): User | null {
 }
 export function clearSession() { localStorage.removeItem(SESSION_KEY); }
 
-// ─── Technicians ─────────────────────────────────────────────────────────────
+// ─── Technicians — via Edge Function (bypassa RLS com Service Role Key) ──────
 
 export async function getTechnicians(): Promise<Technician[]> {
   try {
-    const { data, error } = await supabase
-      .from(TECHNICIANS_TABLE).select('*').order('name', { ascending: true });
-    if (error) return [];
-    return (data as TechRow[]);
+    const res = await callTechniciansFunction('GET');
+    const data = await res.json();
+    return data as TechRow[];
   } catch {
     return [];
   }
 }
 
 export async function addTechnician(tech: Technician): Promise<void> {
-  const { error } = await supabase.from(TECHNICIANS_TABLE).insert(tech);
-  if (error) throw error;
+  await callTechniciansFunction('POST', { id: tech.id, name: tech.name });
 }
 
 export async function updateTechnician(tech: Technician): Promise<void> {
-  const { error } = await supabase
-    .from(TECHNICIANS_TABLE).update({ name: tech.name }).eq('id', tech.id);
-  if (error) throw error;
+  await callTechniciansFunction('PUT', { id: tech.id, name: tech.name });
 }
 
 export async function deleteTechnician(id: string): Promise<void> {
-  const { error } = await supabase.from(TECHNICIANS_TABLE).delete().eq('id', id);
-  if (error) throw error;
+  await callTechniciansFunction('DELETE', { id });
 }
 
 // ─── Call Records ─────────────────────────────────────────────────────────────
