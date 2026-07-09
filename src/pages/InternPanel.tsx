@@ -67,17 +67,22 @@ export default function InternPanel({ user, onLogout }: InternPanelProps) {
 
   const validate = (): string | null => {
     if (!form.date || !form.time) return 'Preencha a data e hora.';
-    if (!form.callName.trim()) return 'Preencha o Nome do Chamado.';
+    if (formConfig.callName?.enabled && formConfig.callName.required && !form.callName.trim())
+      return `Preencha o campo: ${formConfig.callName.customLabel || 'Nome do Chamado'}.`;
 
-    if (formConfig.organ.enabled && formConfig.organ.required && !form.organ) return 'Selecione o Órgão/Setor.';
-    if (formConfig.system.enabled && formConfig.system.required && !form.system) return 'Selecione o Sistema.';
-    if (formConfig.description.enabled && formConfig.description.required && !form.description.trim()) return 'Preencha a Descrição.';
-    if (formConfig.solution.enabled && formConfig.solution.required && !form.solution.trim()) return 'Preencha a Solução.';
+    if (formConfig.organ.enabled && formConfig.organ.required && !form.organ)
+      return `Selecione o campo: ${formConfig.organ.customLabel || 'Órgão/Setor'}.`;
+    if (formConfig.system.enabled && formConfig.system.required && !form.system)
+      return `Selecione o campo: ${formConfig.system.customLabel || 'Sistema'}.`;
+    if (formConfig.description.enabled && formConfig.description.required && !form.description.trim())
+      return `Preencha o campo: ${formConfig.description.customLabel || 'Descrição do Atendimento'}.`;
+    if (formConfig.solution.enabled && formConfig.solution.required && !form.solution.trim())
+      return `Preencha o campo: ${formConfig.solution.customLabel || 'Solução Aplicada'}.`;
 
     if (formConfig.callNumber.enabled) {
       if (form.ticketOpened === '') return 'Informe se foi aberto um chamado para o desenvolvimento.';
       if (form.ticketOpened === 'sim' && formConfig.callNumber.required && !form.callNumber.trim())
-        return 'Informe o número do chamado.';
+        return `Informe o campo: ${formConfig.callNumber.customLabel || 'Número do Chamado'}.`;
     }
 
     if (formConfig.receivedHelp.enabled && formConfig.receivedHelp.required) {
@@ -99,7 +104,9 @@ export default function InternPanel({ user, onLogout }: InternPanelProps) {
       id: generateId(), date: form.date, time: form.time,
       callNumber: form.ticketOpened === 'sim' ? form.callNumber : '',
       organ: form.organ, system: form.system, baseEntity: form.baseEntity,
-      description: `[${form.callName.trim()}] ${form.description.trim()}`,
+      description: formConfig.callName?.enabled
+        ? `[${form.callName.trim()}] ${form.description.trim()}`
+        : form.description.trim(),
       solution: form.solution,
       receivedHelp: form.receivedHelp as 'sim' | 'nao',
       helperName: form.receivedHelp === 'sim' ? form.helperName : undefined,
@@ -159,15 +166,17 @@ export default function InternPanel({ user, onLogout }: InternPanelProps) {
             </div>
 
             {/* Nome do Chamado */}
-            <Field label="Nome do Chamado" required>
-              <input
-                type="text"
-                value={form.callName}
-                onChange={(e) => update('callName', e.target.value)}
-                placeholder="Ex.: Emissão de balancete contábil da Câmara"
-                className="form-input"
-              />
-            </Field>
+            {formConfig.callName?.enabled && (
+              <Field label={formConfig.callName.customLabel || 'Nome do Chamado'} required={formConfig.callName.required}>
+                <input
+                  type="text"
+                  value={form.callName}
+                  onChange={(e) => update('callName', e.target.value)}
+                  placeholder="Ex.: Emissão de balancete contábil da Câmara"
+                  className="form-input"
+                />
+              </Field>
+            )}
 
             {/* Número do Chamado — conditional */}
             {formConfig.callNumber.enabled && (
@@ -180,7 +189,7 @@ export default function InternPanel({ user, onLogout }: InternPanelProps) {
                 </Field>
                 {form.ticketOpened === 'sim' && (
                   <div className="mt-4 animate-[fadeIn_0.3s_ease-out]">
-                    <Field label="Número do Chamado" required={formConfig.callNumber.required}>
+                    <Field label={formConfig.callNumber.customLabel || 'Número do Chamado'} required={formConfig.callNumber.required}>
                       <input type="text" value={form.callNumber} onChange={(e) => update('callNumber', e.target.value)}
                         placeholder="Ex.: 1234" className="form-input" autoFocus />
                     </Field>
@@ -193,7 +202,7 @@ export default function InternPanel({ user, onLogout }: InternPanelProps) {
             {(formConfig.organ.enabled || formConfig.system.enabled) && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {formConfig.organ.enabled && (
-                  <Field label="Órgão / Setor" required={formConfig.organ.required}>
+                  <Field label={formConfig.organ.customLabel || 'Órgão / Setor'} required={formConfig.organ.required}>
                     <select value={form.organ} onChange={(e) => update('organ', e.target.value)} className="form-input">
                       <option value="">Selecione...</option>
                       {organs.map((o) => <option key={o} value={o}>{o}</option>)}
@@ -201,7 +210,7 @@ export default function InternPanel({ user, onLogout }: InternPanelProps) {
                   </Field>
                 )}
                 {formConfig.system.enabled && (
-                  <Field label="Sistema Atendido" required={formConfig.system.required}>
+                  <Field label={formConfig.system.customLabel || 'Sistema Atendido'} required={formConfig.system.required}>
                     <select value={form.system} onChange={(e) => update('system', e.target.value)} className="form-input">
                       <option value="">Selecione...</option>
                       {systems.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -226,13 +235,13 @@ export default function InternPanel({ user, onLogout }: InternPanelProps) {
             {(formConfig.description.enabled || formConfig.solution.enabled) && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {formConfig.description.enabled && (
-                  <Field label="Descrição do Atendimento" required={formConfig.description.required}>
+                  <Field label={formConfig.description.customLabel || 'Descrição do Atendimento'} required={formConfig.description.required}>
                     <textarea value={form.description} onChange={(e) => update('description', e.target.value)}
                       placeholder="Descreva o problema reportado..." rows={4} className="form-input resize-none" />
                   </Field>
                 )}
                 {formConfig.solution.enabled && (
-                  <Field label="Solução Aplicada" required={formConfig.solution.required}>
+                  <Field label={formConfig.solution.customLabel || 'Solução Aplicada'} required={formConfig.solution.required}>
                     <textarea value={form.solution} onChange={(e) => update('solution', e.target.value)}
                       placeholder="Descreva a solução aplicada..." rows={4} className="form-input resize-none" />
                   </Field>
@@ -243,7 +252,7 @@ export default function InternPanel({ user, onLogout }: InternPanelProps) {
             {/* Ajuda */}
             {formConfig.receivedHelp.enabled && (
               <div className="bg-slate-50 rounded-2xl p-5 border border-slate-100">
-                <Field label="O estagiário teve ajuda de algum técnico?" required={formConfig.receivedHelp.required}>
+                <Field label={formConfig.receivedHelp.customLabel || 'O estagiário teve ajuda de algum técnico?'} required={formConfig.receivedHelp.required}>
                   <div className="flex gap-3 mt-2">
                     <RadioBtn name="help" checked={form.receivedHelp === 'sim'} label="Sim" onChange={() => update('receivedHelp', 'sim')} />
                     <RadioBtn name="help" checked={form.receivedHelp === 'nao'} label="Não" onChange={() => update('receivedHelp', 'nao')} />
@@ -322,7 +331,7 @@ export default function InternPanel({ user, onLogout }: InternPanelProps) {
                           </div>
                           {parsed.title && (
                             <p className="text-sm font-semibold text-slate-700 mb-1">
-                              Nome: {parsed.title}
+                              {formConfig.callName?.customLabel || 'Nome'}: {parsed.title}
                             </p>
                           )}
                           <p className={`text-sm text-slate-600 ${isExpanded ? '' : 'truncate'}`}>
@@ -348,7 +357,7 @@ export default function InternPanel({ user, onLogout }: InternPanelProps) {
                             </div>
                           )}
                           <div>
-                            <span className="font-semibold text-slate-500">Solução Aplicada:</span>
+                            <span className="font-semibold text-slate-500">{formConfig.solution?.customLabel || 'Solução Aplicada'}:</span>
                             <div className="mt-1 bg-slate-50 rounded-lg p-2 text-slate-700 border border-slate-100 whitespace-pre-wrap">{c.solution}</div>
                           </div>
                         </div>

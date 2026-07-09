@@ -115,16 +115,18 @@ export interface CallRecord {
 
 // ─── Form Config ─────────────────────────────────────────────────────────────
 
-export type FormFieldKey = 'callNumber' | 'organ' | 'system' | 'description' | 'solution' | 'receivedHelp';
+export type FormFieldKey = 'callName' | 'callNumber' | 'organ' | 'system' | 'description' | 'solution' | 'receivedHelp';
 
 export interface FieldConfig {
   enabled: boolean;
   required: boolean;
+  customLabel?: string;
 }
 
 export type FormConfig = Record<FormFieldKey, FieldConfig>;
 
 export const FORM_FIELD_LABELS: Record<FormFieldKey, { label: string; icon: string; note?: string }> = {
+  callName:     { label: 'Nome do Chamado',        icon: '🏷️' },
   callNumber:   { label: 'Número do Chamado',      icon: '🎫', note: 'Exibido condicionalmente (se chamado foi aberto)' },
   organ:        { label: 'Órgão / Setor',          icon: '🏢' },
   system:       { label: 'Sistema Atendido',       icon: '💻' },
@@ -134,6 +136,7 @@ export const FORM_FIELD_LABELS: Record<FormFieldKey, { label: string; icon: stri
 };
 
 export const DEFAULT_FORM_CONFIG: FormConfig = {
+  callName:     { enabled: true,  required: true  },
   callNumber:   { enabled: true,  required: true  },
   organ:        { enabled: true,  required: true  },
   system:       { enabled: true,  required: true  },

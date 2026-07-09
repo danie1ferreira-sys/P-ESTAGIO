@@ -220,7 +220,11 @@ export default function AdminPanel({ user, onLogout }: AdminPanelProps) {
 
   // ── Form Config ────────────────────────────────────────────────────────────
 
-  const updateFieldConfig = (field: FormFieldKey, key: 'enabled' | 'required', value: boolean) => {
+  const updateFieldConfig = (
+    field: FormFieldKey,
+    key: 'enabled' | 'required' | 'customLabel',
+    value: boolean | string
+  ) => {
     setFormConfig((prev) => ({ ...prev, [field]: { ...prev[field], [key]: value } }));
   };
 
@@ -492,16 +496,17 @@ export default function AdminPanel({ user, onLogout }: AdminPanelProps) {
                   </div>
 
                   <div className="bg-slate-50 rounded-2xl border border-slate-100 overflow-hidden">
-                    <div className="grid grid-cols-[1fr_auto_auto] text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3 border-b border-slate-100">
+                    <div className="grid grid-cols-[1.2fr_1fr_auto_auto] text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3 border-b border-slate-100 gap-4">
                       <span>Campo</span>
+                      <span>Nome Personalizado (Rótulo)</span>
                       <span className="w-20 text-center">Visível</span>
                       <span className="w-24 text-center">Obrigatório</span>
                     </div>
                     {(Object.keys(FORM_FIELD_LABELS) as FormFieldKey[]).map((key) => {
                       const meta = FORM_FIELD_LABELS[key];
-                      const cfg = formConfig[key];
+                      const cfg = formConfig[key] || { enabled: true, required: true, customLabel: '' };
                       return (
-                        <div key={key} className="grid grid-cols-[1fr_auto_auto] items-center px-5 py-4 border-b border-slate-100 last:border-0 hover:bg-white/60 transition">
+                        <div key={key} className="grid grid-cols-[1.2fr_1fr_auto_auto] items-center px-5 py-3.5 border-b border-slate-100 last:border-0 hover:bg-white/60 transition gap-4">
                           <div>
                             <div className="flex items-center gap-2">
                               <span className="text-base">{meta.icon}</span>
@@ -512,11 +517,19 @@ export default function AdminPanel({ user, onLogout }: AdminPanelProps) {
                             </div>
                             {meta.note && <p className="text-xs text-slate-400 mt-0.5 ml-7">{meta.note}</p>}
                           </div>
+                          <div>
+                            <input
+                              type="text"
+                              value={cfg.customLabel || ''}
+                              onChange={(e) => updateFieldConfig(key, 'customLabel', e.target.value)}
+                              placeholder={`Padrão: ${meta.label}`}
+                              className="w-full text-xs px-3 py-1.5 rounded-lg border border-slate-200 focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 bg-white text-slate-700 font-medium"
+                            />
+                          </div>
                           <div className="w-20 flex justify-center">
                             <Toggle
                               checked={cfg.enabled}
                               onChange={(v) => updateFieldConfig(key, 'enabled', v)}
-                              disabled={key === 'callNumber' ? false : false}
                             />
                           </div>
                           <div className="w-24 flex justify-center">
