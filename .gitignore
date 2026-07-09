@@ -39,3 +39,6 @@ dist-ssr/
 
 # Portable node
 .node-portable/
+
+# Supabase CLI temp files
+supabase/.temp/
