@@ -35,7 +35,7 @@ export default function App() {
         setUser(getSession());
       })
       .catch((err) => {
-        setError(err instanceof Error ? err.message : 'Não foiii possível conectar ao Supabase.');
+        setError(err instanceof Error ? err.message : 'Não foi possível conectar ao Supabase.');
       })
       .finally(() => setReady(true));
   }, []);
