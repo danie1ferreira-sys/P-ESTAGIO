@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, Fragment } from 'react';
 import * as XLSX from 'xlsx';
 import Logo from '../components/Logo';
 import { User, CallRecord } from '../types';
@@ -274,42 +274,86 @@ export default function SupervisorPanel({ user, onLogout }: SupervisorPanelProps
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filtered.map((c) => (
-                      <tr key={c.id} className="hover:bg-blue-50/30 transition">
-                        <td className="px-6 py-3.5 font-semibold text-slate-800">#{c.callNumber}</td>
-                        <td className="px-6 py-3.5 text-slate-600 whitespace-nowrap">
-                          <div>{c.date}</div>
-                          <div className="text-xs text-slate-400">{c.time}</div>
-                        </td>
-                        <td className="px-6 py-3.5 text-slate-700">{c.internName}</td>
-                        <td className="px-6 py-3.5 text-slate-600">{c.organ}</td>
-                        <td className="px-6 py-3.5">
-                          <span className="inline-block px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs font-medium">
-                            {c.system}
-                          </span>
-                        </td>
-                        <td className="px-6 py-3.5">
-                          {c.receivedHelp === 'sim' ? (
-                            <span className="inline-block px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-xs font-medium" title={c.helperName}>
-                              Sim • {c.helperName}
+                      <Fragment key={c.id}>
+                        <tr className={`hover:bg-blue-50/30 transition ${expandedId === c.id ? 'bg-blue-50/20 font-medium' : ''}`}>
+                          <td className="px-6 py-3.5 font-semibold text-slate-800">#{c.callNumber}</td>
+                          <td className="px-6 py-3.5 text-slate-600 whitespace-nowrap">
+                            <div>{c.date}</div>
+                            <div className="text-xs text-slate-400">{c.time}</div>
+                          </td>
+                          <td className="px-6 py-3.5 text-slate-700">{c.internName}</td>
+                          <td className="px-6 py-3.5 text-slate-600">{c.organ}</td>
+                          <td className="px-6 py-3.5">
+                            <span className="inline-block px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs font-medium">
+                              {c.system}
                             </span>
-                          ) : (
-                            <span className="inline-block px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-xs font-medium">
-                              Não
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-6 py-3.5 text-center">
-                          <button
-                            onClick={() => setExpandedId(expandedId === c.id ? null : c.id)}
-                            className="text-blue-600 hover:text-blue-800 text-xs font-medium inline-flex items-center gap-1"
-                          >
-                            {expandedId === c.id ? 'Fechar' : 'Ver'}
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                              <path strokeLinecap="round" strokeLinejoin="round" d={expandedId === c.id ? 'M5 15l7-7 7 7' : 'M19 9l-7 7-7-7'} />
-                            </svg>
-                          </button>
-                        </td>
-                      </tr>
+                          </td>
+                          <td className="px-6 py-3.5">
+                            {c.receivedHelp === 'sim' ? (
+                              <span className="inline-block px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-xs font-medium" title={c.helperName}>
+                                Sim • {c.helperName}
+                              </span>
+                            ) : (
+                              <span className="inline-block px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-xs font-medium">
+                                Não
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-6 py-3.5 text-center">
+                            <button
+                              onClick={() => setExpandedId(expandedId === c.id ? null : c.id)}
+                              className="text-blue-600 hover:text-blue-800 text-xs font-medium inline-flex items-center gap-1"
+                            >
+                              {expandedId === c.id ? 'Fechar' : 'Ver'}
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                <path strokeLinecap="round" strokeLinejoin="round" d={expandedId === c.id ? 'M5 15l7-7 7 7' : 'M19 9l-7 7-7-7'} />
+                              </svg>
+                            </button>
+                          </td>
+                        </tr>
+                        {expandedId === c.id && (() => {
+                          const parsed = parseDescription(c.description);
+                          return (
+                            <tr className="bg-slate-50/40">
+                              <td colSpan={7} className="p-0">
+                                <div className="px-6 py-5 border-t border-b border-slate-100 bg-slate-50/30">
+                                  <div className="flex items-center justify-between mb-4">
+                                    <h3 className="font-semibold text-slate-800">Detalhes do Chamado #{c.callNumber}</h3>
+                                    <button
+                                      onClick={() => setExpandedId(null)}
+                                      className="text-slate-400 hover:text-slate-600"
+                                    >
+                                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                    <DetailItem label="Estagiário" value={c.internName} />
+                                    <DetailItem label="Data e Hora" value={`${c.date} ${c.time}`} />
+                                    <DetailItem label="Órgão" value={c.organ} />
+                                    <DetailItem label="Sistema" value={c.system} />
+                                    {c.baseEntity && <DetailItem label="Base / Entidade" value={c.baseEntity} />}
+                                    <DetailItem label="Recebeu ajuda?" value={c.receivedHelp === 'sim' ? `Sim - ${c.helperName}` : 'Não'} />
+                                    <DetailItem label="Número" value={c.callNumber} />
+                                    {parsed.title && <DetailItem label="Nome do Chamado" value={parsed.title} />}
+                                  </div>
+                                  <div className="mt-4 space-y-4">
+                                    <div>
+                                      <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Descrição</div>
+                                      <div className="bg-white rounded-xl p-4 text-sm text-slate-700 border border-slate-100 whitespace-pre-wrap">{parsed.body}</div>
+                                    </div>
+                                    <div>
+                                      <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Solução</div>
+                                      <div className="bg-white rounded-xl p-4 text-sm text-slate-700 border border-slate-100 whitespace-pre-wrap">{c.solution}</div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })()}
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>
@@ -317,69 +361,57 @@ export default function SupervisorPanel({ user, onLogout }: SupervisorPanelProps
 
               {/* Mobile list */}
               <div className="md:hidden divide-y divide-slate-100">
-                {filtered.map((c) => (
-                  <div key={c.id} className="p-4">
-                    <div className="flex items-start justify-between gap-3 mb-2">
-                      <div>
-                        <div className="font-semibold text-slate-800">#{c.callNumber}</div>
-                        <div className="text-xs text-slate-500">{c.date} {c.time}</div>
+                {filtered.map((c) => {
+                  const parsed = parseDescription(c.description);
+                  const isExpanded = expandedId === c.id;
+                  return (
+                    <div key={c.id} className={`p-4 transition ${isExpanded ? 'bg-slate-50/60' : ''}`}>
+                      <div className="flex items-start justify-between gap-3 mb-2">
+                        <div>
+                          <div className="font-semibold text-slate-800">#{c.callNumber}</div>
+                          <div className="text-xs text-slate-500">{c.date} {c.time}</div>
+                        </div>
+                        <span className="inline-block px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs font-medium">
+                          {c.system}
+                        </span>
                       </div>
-                      <span className="inline-block px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs font-medium">
-                        {c.system}
-                      </span>
-                    </div>
-                    <div className="text-sm text-slate-700 mb-1">{c.internName}</div>
-                    <div className="text-xs text-slate-500">{c.organ}</div>
-                    {c.baseEntity && <div className="text-xs text-slate-400 mt-0.5">📍 {c.baseEntity}</div>}
-                    <button
-                      onClick={() => setExpandedId(expandedId === c.id ? null : c.id)}
-                      className="mt-2 text-blue-600 text-xs font-medium"
-                    >
-                      {expandedId === c.id ? 'Fechar detalhes ▲' : 'Ver detalhes ▼'}
-                    </button>
-                  </div>
-                ))}
-              </div>
-
-              {/* Expanded details */}
-              {expandedId && (() => {
-                const c = filtered.find((r) => r.id === expandedId);
-                if (!c) return null;
-                return (
-                  <div className="border-t border-slate-200 bg-blue-50/30 p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="font-semibold text-slate-800">Detalhes do Chamado #{c.callNumber}</h3>
+                      <div className="text-sm text-slate-700 mb-1">{c.internName}</div>
+                      <div className="text-xs text-slate-500">{c.organ}</div>
+                      {c.baseEntity && <div className="text-xs text-slate-400 mt-0.5">📍 {c.baseEntity}</div>}
                       <button
-                        onClick={() => setExpandedId(null)}
-                        className="text-slate-400 hover:text-slate-600"
+                        onClick={() => setExpandedId(isExpanded ? null : c.id)}
+                        className="mt-2 text-blue-600 text-xs font-medium block"
                       >
-                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
+                        {isExpanded ? 'Fechar detalhes ▲' : 'Ver detalhes ▼'}
                       </button>
+                      {isExpanded && (
+                        <div className="mt-4 pt-4 border-t border-slate-200/80 space-y-4">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <DetailItem label="Estagiário" value={c.internName} />
+                            <DetailItem label="Data e Hora" value={`${c.date} ${c.time}`} />
+                            <DetailItem label="Órgão" value={c.organ} />
+                            <DetailItem label="Sistema" value={c.system} />
+                            {c.baseEntity && <DetailItem label="Base / Entidade" value={c.baseEntity} />}
+                            <DetailItem label="Recebeu ajuda?" value={c.receivedHelp === 'sim' ? `Sim - ${c.helperName}` : 'Não'} />
+                            <DetailItem label="Número" value={c.callNumber} />
+                            {parsed.title && <DetailItem label="Nome do Chamado" value={parsed.title} />}
+                          </div>
+                          <div className="space-y-3">
+                            <div>
+                              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Descrição</div>
+                              <div className="bg-white rounded-xl p-3 text-sm text-slate-700 border border-slate-100 whitespace-pre-wrap">{parsed.body}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Solução</div>
+                              <div className="bg-white rounded-xl p-3 text-sm text-slate-700 border border-slate-100 whitespace-pre-wrap">{c.solution}</div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <DetailItem label="Estagiário" value={c.internName} />
-                      <DetailItem label="Data e Hora" value={`${c.date} ${c.time}`} />
-                      <DetailItem label="Órgão" value={c.organ} />
-                      <DetailItem label="Sistema" value={c.system} />
-                      {c.baseEntity && <DetailItem label="Base / Entidade" value={c.baseEntity} />}
-                      <DetailItem label="Recebeu ajuda?" value={c.receivedHelp === 'sim' ? `Sim - ${c.helperName}` : 'Não'} />
-                      <DetailItem label="Número" value={c.callNumber} />
-                    </div>
-                    <div className="mt-4 space-y-4">
-                      <div>
-                        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Descrição</div>
-                        <div className="bg-white rounded-xl p-4 text-sm text-slate-700 border border-slate-100">{c.description}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Solução</div>
-                        <div className="bg-white rounded-xl p-4 text-sm text-slate-700 border border-slate-100">{c.solution}</div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
+                  );
+                })}
+              </div>
             </>
           )}
         </div>
@@ -437,4 +469,12 @@ function DetailItem({ label, value }: { label: string; value: string }) {
       <div className="text-sm text-slate-800">{value}</div>
     </div>
   );
+}
+
+function parseDescription(desc: string): { title: string; body: string } {
+  const match = desc.match(/^\[(.*?)\]\s*([\s\S]*)$/);
+  if (match) {
+    return { title: match[1], body: match[2] };
+  }
+  return { title: '', body: desc };
 }

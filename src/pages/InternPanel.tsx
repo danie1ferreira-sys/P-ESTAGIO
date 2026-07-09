@@ -4,6 +4,14 @@ import { User, CallRecord, FormConfig, DEFAULT_FORM_CONFIG } from '../types';
 import { addCall, getCallsByIntern, getTechnicians, generateId, getSystems, getOrgans, getFormConfig, getGeneralConfig } from '../utils/storage';
 import { Technician } from '../types';
 
+function parseDescription(desc: string): { title: string; body: string } {
+  const match = desc.match(/^\[(.*?)\]\s*([\s\S]*)$/);
+  if (match) {
+    return { title: match[1], body: match[2] };
+  }
+  return { title: '', body: desc };
+}
+
 interface InternPanelProps { user: User; onLogout: () => void; }
 
 interface FormState {
@@ -12,6 +20,7 @@ interface FormState {
   callNumber: string;
   organ: string; system: string;
   baseEntity: string;
+  callName: string;
   description: string; solution: string;
   receivedHelp: 'sim' | 'nao' | '';
   helperName: string;
@@ -23,7 +32,9 @@ const emptyForm = (): FormState => {
     date: now.toISOString().slice(0, 10),
     time: now.toTimeString().slice(0, 5),
     ticketOpened: '', callNumber: '',
-    organ: '', system: '', baseEntity: '', description: '', solution: '',
+    organ: '', system: '', baseEntity: '',
+    callName: '',
+    description: '', solution: '',
     receivedHelp: '', helperName: '',
   };
 };
@@ -38,6 +49,8 @@ export default function InternPanel({ user, onLogout }: InternPanelProps) {
   const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [formConfig, setFormConfig] = useState<FormConfig>(DEFAULT_FORM_CONFIG);
   const [showRecentCalls, setShowRecentCalls] = useState(true);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [visibleCount, setVisibleCount] = useState(5);
 
   useEffect(() => { loadData(); }, [user.id]);
 
@@ -54,6 +67,7 @@ export default function InternPanel({ user, onLogout }: InternPanelProps) {
 
   const validate = (): string | null => {
     if (!form.date || !form.time) return 'Preencha a data e hora.';
+    if (!form.callName.trim()) return 'Preencha o Nome do Chamado.';
 
     if (formConfig.organ.enabled && formConfig.organ.required && !form.organ) return 'Selecione o Órgão/Setor.';
     if (formConfig.system.enabled && formConfig.system.required && !form.system) return 'Selecione o Sistema.';
@@ -85,7 +99,8 @@ export default function InternPanel({ user, onLogout }: InternPanelProps) {
       id: generateId(), date: form.date, time: form.time,
       callNumber: form.ticketOpened === 'sim' ? form.callNumber : '',
       organ: form.organ, system: form.system, baseEntity: form.baseEntity,
-      description: form.description, solution: form.solution,
+      description: `[${form.callName.trim()}] ${form.description.trim()}`,
+      solution: form.solution,
       receivedHelp: form.receivedHelp as 'sim' | 'nao',
       helperName: form.receivedHelp === 'sim' ? form.helperName : undefined,
       internId: user.id, internName: user.name, createdAt: new Date().toISOString(),
@@ -142,6 +157,17 @@ export default function InternPanel({ user, onLogout }: InternPanelProps) {
                 <input type="time" value={form.time} onChange={(e) => update('time', e.target.value)} className="form-input" />
               </Field>
             </div>
+
+            {/* Nome do Chamado */}
+            <Field label="Nome do Chamado" required>
+              <input
+                type="text"
+                value={form.callName}
+                onChange={(e) => update('callName', e.target.value)}
+                placeholder="Ex.: Emissão de balancete contábil da Câmara"
+                className="form-input"
+              />
+            </Field>
 
             {/* Número do Chamado — conditional */}
             {formConfig.callNumber.enabled && (
@@ -260,7 +286,7 @@ export default function InternPanel({ user, onLogout }: InternPanelProps) {
         {showRecentCalls && (
           <div className="mt-8">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-semibold text-slate-800">Meus últimos chamados</h2>
+              <h2 className="text-lg font-semibold text-slate-800">Meus chamados</h2>
               <span className="text-xs text-slate-500 bg-white border border-slate-200 px-2.5 py-1 rounded-full">{myCalls.length} registros</span>
             </div>
             {myCalls.length === 0 ? (
@@ -274,30 +300,77 @@ export default function InternPanel({ user, onLogout }: InternPanelProps) {
               </div>
             ) : (
               <div className="space-y-2">
-                {myCalls.slice(0, 5).map((c) => (
-                  <div key={c.id} className="bg-white rounded-xl border border-slate-100 p-4 flex items-start gap-3 hover:border-blue-200 hover:shadow-sm transition">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-100 to-blue-50 text-blue-700 font-semibold text-xs flex items-center justify-center flex-shrink-0">
-                      {c.callNumber ? `#${c.callNumber}` : '—'}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap mb-1">
-                        <span className="text-sm font-semibold text-slate-800">{c.system || '—'}</span>
-                        {c.organ && <><span className="text-xs text-slate-400">•</span><span className="text-xs text-slate-500">{c.organ}</span></>}
+                {myCalls.slice(0, visibleCount).map((c) => {
+                  const parsed = parseDescription(c.description);
+                  const isExpanded = expandedId === c.id;
+                  return (
+                    <div
+                      key={c.id}
+                      onClick={() => setExpandedId(isExpanded ? null : c.id)}
+                      className={`bg-white rounded-xl border p-4 flex flex-col gap-2 hover:border-blue-200 hover:shadow-sm transition cursor-pointer ${
+                        isExpanded ? 'border-blue-300 ring-2 ring-blue-50' : 'border-slate-100'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-100 to-blue-50 text-blue-700 font-semibold text-xs flex items-center justify-center flex-shrink-0">
+                          {c.callNumber ? `#${c.callNumber}` : '—'}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap mb-1">
+                            <span className="text-sm font-semibold text-slate-800">{c.system || '—'}</span>
+                            {c.organ && <><span className="text-xs text-slate-400">•</span><span className="text-xs text-slate-500">{c.organ}</span></>}
+                          </div>
+                          {parsed.title && (
+                            <p className="text-sm font-semibold text-slate-700 mb-1">
+                              Nome: {parsed.title}
+                            </p>
+                          )}
+                          <p className={`text-sm text-slate-600 ${isExpanded ? '' : 'truncate'}`}>
+                            {parsed.body}
+                          </p>
+                          <div className="flex items-center gap-3 mt-2 text-xs text-slate-400 flex-wrap">
+                            <span>{c.date}</span>
+                            <span>{c.time}</span>
+                            {c.receivedHelp === 'sim' && (
+                              <span className="text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">Ajuda: {c.helperName}</span>
+                            )}
+                            {!c.callNumber && (
+                              <span className="text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Sem chamado</span>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                      <p className="text-sm text-slate-600 truncate">{c.description}</p>
-                      <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
-                        <span>{c.date}</span>
-                        <span>{c.time}</span>
-                        {c.receivedHelp === 'sim' && (
-                          <span className="text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">Ajuda: {c.helperName}</span>
-                        )}
-                        {!c.callNumber && (
-                          <span className="text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Sem chamado</span>
-                        )}
-                      </div>
+                      {isExpanded && (
+                        <div className="mt-3 pt-3 border-t border-slate-100 space-y-3 text-xs text-slate-600 animate-[fadeIn_0.2s_ease-out]">
+                          {c.baseEntity && (
+                            <div>
+                              <span className="font-semibold text-slate-500">Base / Entidade:</span> {c.baseEntity}
+                            </div>
+                          )}
+                          <div>
+                            <span className="font-semibold text-slate-500">Solução Aplicada:</span>
+                            <div className="mt-1 bg-slate-50 rounded-lg p-2 text-slate-700 border border-slate-100 whitespace-pre-wrap">{c.solution}</div>
+                          </div>
+                        </div>
+                      )}
                     </div>
+                  );
+                })}
+
+                {myCalls.length > visibleCount && (
+                  <div className="text-center mt-4">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setVisibleCount((prev) => prev + 10);
+                      }}
+                      className="px-4 py-2.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 hover:text-blue-700 rounded-xl transition"
+                    >
+                      Carregar mais chamados ({myCalls.length - visibleCount} restantes)
+                    </button>
                   </div>
-                ))}
+                )}
               </div>
             )}
           </div>
