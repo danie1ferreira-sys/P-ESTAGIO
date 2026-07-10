@@ -165,9 +165,9 @@ export default function InternPanel({ user, onLogout }: InternPanelProps) {
               </Field>
             </div>
 
-            {/* Qual o chamado? */}
+            {/* Nome do Chamado */}
             {formConfig.callName?.enabled && (
-              <Field label={formConfig.callName.customLabel || 'Nome do Chamado'} required={formConfig.callName.required}>
+              <Field label={formConfig.callName.customLabel || 'Qual o chamado?'} required={formConfig.callName.required}>
                 <input
                   type="text"
                   value={form.callName}
