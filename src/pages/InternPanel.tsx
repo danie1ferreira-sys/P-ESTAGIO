@@ -165,7 +165,7 @@ export default function InternPanel({ user, onLogout }: InternPanelProps) {
               </Field>
             </div>
 
-            {/* Nome do Chamado */}
+            {/* Qual o chamado? */}
             {formConfig.callName?.enabled && (
               <Field label={formConfig.callName.customLabel || 'Nome do Chamado'} required={formConfig.callName.required}>
                 <input
@@ -316,9 +316,8 @@ export default function InternPanel({ user, onLogout }: InternPanelProps) {
                     <div
                       key={c.id}
                       onClick={() => setExpandedId(isExpanded ? null : c.id)}
-                      className={`bg-white rounded-xl border p-4 flex flex-col gap-2 hover:border-blue-200 hover:shadow-sm transition cursor-pointer ${
-                        isExpanded ? 'border-blue-300 ring-2 ring-blue-50' : 'border-slate-100'
-                      }`}
+                      className={`bg-white rounded-xl border p-4 flex flex-col gap-2 hover:border-blue-200 hover:shadow-sm transition cursor-pointer ${isExpanded ? 'border-blue-300 ring-2 ring-blue-50' : 'border-slate-100'
+                        }`}
                     >
                       <div className="flex items-start gap-3">
                         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-100 to-blue-50 text-blue-700 font-semibold text-xs flex items-center justify-center flex-shrink-0">
