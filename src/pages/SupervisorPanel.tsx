@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo, Fragment } from 'react';
 import * as XLSX from 'xlsx';
 import Logo from '../components/Logo';
-import { User, CallRecord } from '../types';
-import { getCalls, getInterns, getSystems, getOrgans } from '../utils/storage';
+import { User, CallRecord, FormConfig, DEFAULT_FORM_CONFIG } from '../types';
+import { getCalls, getInterns, getSystems, getOrgans, getFormConfig } from '../utils/storage';
 
 interface SupervisorPanelProps {
   user: User;
@@ -21,18 +21,21 @@ export default function SupervisorPanel({ user, onLogout }: SupervisorPanelProps
   const [systems, setSystems] = useState<string[]>([]);
   const [organs, setOrgans] = useState<string[]>([]);
   const [interns, setInterns] = useState<User[]>([]);
+  const [formConfig, setFormConfig] = useState<FormConfig>(DEFAULT_FORM_CONFIG);
 
   const loadData = async () => {
-    const [allCalls, sys, org, allInterns] = await Promise.all([
+    const [allCalls, sys, org, allInterns, fc] = await Promise.all([
       getCalls(),
       getSystems(),
       getOrgans(),
       getInterns(),
+      getFormConfig(),
     ]);
     setCalls(allCalls);
     setSystems(sys);
     setOrgans(org);
     setInterns(allInterns);
+    setFormConfig(fc);
   };
 
   const refreshCalls = async () => {
@@ -331,20 +334,24 @@ export default function SupervisorPanel({ user, onLogout }: SupervisorPanelProps
                                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                                     <DetailItem label="Estagiário" value={c.internName} />
                                     <DetailItem label="Data e Hora" value={`${c.date} ${c.time}`} />
-                                    <DetailItem label="Órgão" value={c.organ} />
-                                    <DetailItem label="Sistema" value={c.system} />
+                                    <DetailItem label={formConfig.organ?.customLabel || "Órgão"} value={c.organ} />
+                                    <DetailItem label={formConfig.system?.customLabel || "Sistema"} value={c.system} />
                                     {c.baseEntity && <DetailItem label="Base / Entidade" value={c.baseEntity} />}
-                                    <DetailItem label="Recebeu ajuda?" value={c.receivedHelp === 'sim' ? `Sim - ${c.helperName}` : 'Não'} />
-                                    <DetailItem label="Número" value={c.callNumber} />
-                                    {parsed.title && <DetailItem label="Nome do Chamado" value={parsed.title} />}
+                                    <DetailItem label={formConfig.receivedHelp?.customLabel || "Recebeu ajuda?"} value={c.receivedHelp === 'sim' ? `Sim - ${c.helperName}` : 'Não'} />
+                                    <DetailItem label={formConfig.callNumber?.customLabel || "Número"} value={c.callNumber} />
+                                    {parsed.title && <DetailItem label={formConfig.callName?.customLabel || "Nome do Chamado"} value={parsed.title} />}
                                   </div>
                                   <div className="mt-4 space-y-4">
                                     <div>
-                                      <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Descrição</div>
+                                      <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
+                                        {formConfig.description?.customLabel || "Descrição"}
+                                      </div>
                                       <div className="bg-white rounded-xl p-4 text-sm text-slate-700 border border-slate-100 whitespace-pre-wrap">{parsed.body}</div>
                                     </div>
                                     <div>
-                                      <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Solução</div>
+                                      <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
+                                        {formConfig.solution?.customLabel || "Solução"}
+                                      </div>
                                       <div className="bg-white rounded-xl p-4 text-sm text-slate-700 border border-slate-100 whitespace-pre-wrap">{c.solution}</div>
                                     </div>
                                   </div>
@@ -389,20 +396,24 @@ export default function SupervisorPanel({ user, onLogout }: SupervisorPanelProps
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <DetailItem label="Estagiário" value={c.internName} />
                             <DetailItem label="Data e Hora" value={`${c.date} ${c.time}`} />
-                            <DetailItem label="Órgão" value={c.organ} />
-                            <DetailItem label="Sistema" value={c.system} />
+                            <DetailItem label={formConfig.organ?.customLabel || "Órgão"} value={c.organ} />
+                            <DetailItem label={formConfig.system?.customLabel || "Sistema"} value={c.system} />
                             {c.baseEntity && <DetailItem label="Base / Entidade" value={c.baseEntity} />}
-                            <DetailItem label="Recebeu ajuda?" value={c.receivedHelp === 'sim' ? `Sim - ${c.helperName}` : 'Não'} />
-                            <DetailItem label="Número" value={c.callNumber} />
-                            {parsed.title && <DetailItem label="Nome do Chamado" value={parsed.title} />}
+                            <DetailItem label={formConfig.receivedHelp?.customLabel || "Recebeu ajuda?"} value={c.receivedHelp === 'sim' ? `Sim - ${c.helperName}` : 'Não'} />
+                            <DetailItem label={formConfig.callNumber?.customLabel || "Número"} value={c.callNumber} />
+                            {parsed.title && <DetailItem label={formConfig.callName?.customLabel || "Nome do Chamado"} value={parsed.title} />}
                           </div>
                           <div className="space-y-3">
                             <div>
-                              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Descrição</div>
+                              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
+                                {formConfig.description?.customLabel || "Descrição"}
+                              </div>
                               <div className="bg-white rounded-xl p-3 text-sm text-slate-700 border border-slate-100 whitespace-pre-wrap">{parsed.body}</div>
                             </div>
                             <div>
-                              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Solução</div>
+                              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
+                                {formConfig.solution?.customLabel || "Solução"}
+                              </div>
                               <div className="bg-white rounded-xl p-3 text-sm text-slate-700 border border-slate-100 whitespace-pre-wrap">{c.solution}</div>
                             </div>
                           </div>
