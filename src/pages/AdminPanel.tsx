@@ -600,6 +600,19 @@ export default function AdminPanel({ user, onLogout }: AdminPanelProps) {
                         onChange={(v) => setGeneralConfig((p) => ({ ...p, showRecentCallsInIntern: v }))}
                       />
                     </ConfigRow>
+
+                    <ConfigRow
+                      label="Chave de API do Gemini"
+                      description="Chave do Google Gemini utilizada para o Preenchimento Inteligente"
+                    >
+                      <input
+                        type="password"
+                        value={generalConfig.geminiApiKey || ''}
+                        onChange={(e) => setGeneralConfig((p) => ({ ...p, geminiApiKey: e.target.value }))}
+                        placeholder="AIzaSy..."
+                        className="w-64 px-3 py-1.5 rounded-lg border border-slate-200 text-xs outline-none focus:border-rose-400 bg-white text-slate-700 font-medium transition-all"
+                      />
+                    </ConfigRow>
                   </div>
                 </section>
               )}
