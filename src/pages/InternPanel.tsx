@@ -3,6 +3,7 @@ import Logo from '../components/Logo';
 import { User, CallRecord, FormConfig, DEFAULT_FORM_CONFIG } from '../types';
 import { addCall, getCallsByIntern, getTechnicians, generateId, getSystems, getOrgans, getFormConfig, getGeneralConfig } from '../utils/storage';
 import { Technician } from '../types';
+import SmartFilling from '../components/SmartFilling';
 
 function parseDescription(desc: string): { title: string; body: string } {
   const match = desc.match(/^\[(.*?)\]\s*([\s\S]*)$/);
@@ -40,6 +41,8 @@ const emptyForm = (): FormState => {
 };
 
 export default function InternPanel({ user, onLogout }: InternPanelProps) {
+  const [activeTab, setActiveTab] = useState<'manual' | 'smart'>('manual');
+  const [geminiApiKey, setGeminiApiKey] = useState('');
   const [form, setForm] = useState<FormState>(emptyForm);
   const [showModal, setShowModal] = useState(false);
   const [myCalls, setMyCalls] = useState<CallRecord[]>([]);
@@ -61,6 +64,19 @@ export default function InternPanel({ user, onLogout }: InternPanelProps) {
     ]);
     setMyCalls(calls); setSystems(sys); setOrgans(org); setTechnicians(techs);
     setFormConfig(fc); setShowRecentCalls(gc.showRecentCallsInIntern);
+    setGeminiApiKey(gc.geminiApiKey || '');
+  };
+
+  const handleFieldsFilled = (fields: Record<string, string>) => {
+    setForm((prev) => {
+      const updated = { ...prev };
+      for (const [key, value] of Object.entries(fields)) {
+        if (key in updated) {
+          (updated as any)[key] = value;
+        }
+      }
+      return updated;
+    });
   };
 
   const update = (key: keyof FormState, value: string) => setForm((p) => ({ ...p, [key]: value }));
@@ -151,145 +167,182 @@ export default function InternPanel({ user, onLogout }: InternPanelProps) {
           <p className="text-slate-500 text-sm mt-1">Preencha os campos abaixo para registrar um novo atendimento.</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="bg-white rounded-3xl shadow-xl shadow-blue-900/5 border border-slate-100 overflow-hidden">
-          <div className="bg-gradient-to-r from-blue-600 to-blue-800 h-1.5" />
-          <div className="p-6 sm:p-8 space-y-6">
+        {/* Tabs */}
+        <div className="flex border-b border-slate-200 mb-6 gap-1 overflow-x-auto pb-1">
+          <button
+            type="button"
+            onClick={() => setActiveTab('manual')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 whitespace-nowrap transition-all duration-200 ${
+              activeTab === 'manual'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+            }`}
+          >
+            <span>📝</span> Preenchimento Manual
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('smart')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 whitespace-nowrap transition-all duration-200 ${
+              activeTab === 'smart'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+            }`}
+          >
+            <span>✨</span> Preenchimento Inteligente
+          </button>
+        </div>
 
-            {/* Data & Hora — always shown */}
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="Data" required>
-                <input type="date" value={form.date} onChange={(e) => update('date', e.target.value)} className="form-input" />
-              </Field>
-              <Field label="Hora" required>
-                <input type="time" value={form.time} onChange={(e) => update('time', e.target.value)} className="form-input" />
-              </Field>
-            </div>
+        {activeTab === 'manual' ? (
+          <form onSubmit={handleSubmit} className="bg-white rounded-3xl shadow-xl shadow-blue-900/5 border border-slate-100 overflow-hidden">
+            <div className="bg-gradient-to-r from-blue-600 to-blue-800 h-1.5" />
+            <div className="p-6 sm:p-8 space-y-6">
 
-            {/* Nome do Chamado */}
-            {formConfig.callName?.enabled && (
-              <Field label={formConfig.callName.customLabel || 'Número do chamado'} required={formConfig.callName.required}>
+              {/* Data & Hora — always shown */}
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Data" required>
+                  <input type="date" value={form.date} onChange={(e) => update('date', e.target.value)} className="form-input" />
+                </Field>
+                <Field label="Hora" required>
+                  <input type="time" value={form.time} onChange={(e) => update('time', e.target.value)} className="form-input" />
+                </Field>
+              </div>
+
+              {/* Nome do Chamado */}
+              {formConfig.callName?.enabled && (
+                <Field label={formConfig.callName.customLabel || 'Número do chamado'} required={formConfig.callName.required}>
+                  <input
+                    type="text"
+                    value={form.callName}
+                    onChange={(e) => update('callName', e.target.value)}
+                    placeholder="Ex.: Emissão de balancete contábil da Câmara"
+                    className="form-input"
+                  />
+                </Field>
+              )}
+
+              {/* Número do Chamado — conditional */}
+              {formConfig.callNumber.enabled && (
+                <div className="bg-slate-50 rounded-2xl p-5 border border-slate-100">
+                  <Field label="Foi aberto um chamado para o desenvolvimento?" required={formConfig.callNumber.required}>
+                    <div className="flex gap-3 mt-2">
+                      <RadioBtn name="ticketOpened" checked={form.ticketOpened === 'sim'} label="Sim" onChange={() => update('ticketOpened', 'sim')} />
+                      <RadioBtn name="ticketOpened" checked={form.ticketOpened === 'nao'} label="Não" onChange={() => { update('ticketOpened', 'nao'); update('callNumber', ''); }} />
+                    </div>
+                  </Field>
+                  {form.ticketOpened === 'sim' && (
+                    <div className="mt-4 animate-[fadeIn_0.3s_ease-out]">
+                      <Field label={formConfig.callNumber.customLabel || 'Número do Chamado'} required={formConfig.callNumber.required}>
+                        <input type="text" value={form.callNumber} onChange={(e) => update('callNumber', e.target.value)}
+                          placeholder="Ex.: 1234" className="form-input" autoFocus />
+                      </Field>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Órgão & Sistema */}
+              {(formConfig.organ.enabled || formConfig.system.enabled) && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {formConfig.organ.enabled && (
+                    <Field label={formConfig.organ.customLabel || 'Órgão / Setor'} required={formConfig.organ.required}>
+                      <select value={form.organ} onChange={(e) => update('organ', e.target.value)} className="form-input">
+                        <option value="">Selecione...</option>
+                        {organs.map((o) => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    </Field>
+                  )}
+                  {formConfig.system.enabled && (
+                    <Field label={formConfig.system.customLabel || 'Sistema Atendido'} required={formConfig.system.required}>
+                      <select value={form.system} onChange={(e) => update('system', e.target.value)} className="form-input">
+                        <option value="">Selecione...</option>
+                        {systems.map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </Field>
+                  )}
+                </div>
+              )}
+
+              {/* Base / Entidade */}
+              <Field label="Base / Entidade">
                 <input
                   type="text"
-                  value={form.callName}
-                  onChange={(e) => update('callName', e.target.value)}
-                  placeholder="Ex.: Emissão de balancete contábil da Câmara"
+                  value={form.baseEntity}
+                  onChange={(e) => update('baseEntity', e.target.value)}
+                  placeholder="Ex.: Prefeitura Municipal de..."
                   className="form-input"
                 />
               </Field>
-            )}
 
-            {/* Número do Chamado — conditional */}
-            {formConfig.callNumber.enabled && (
-              <div className="bg-slate-50 rounded-2xl p-5 border border-slate-100">
-                <Field label="Foi aberto um chamado para o desenvolvimento?" required={formConfig.callNumber.required}>
-                  <div className="flex gap-3 mt-2">
-                    <RadioBtn name="ticketOpened" checked={form.ticketOpened === 'sim'} label="Sim" onChange={() => update('ticketOpened', 'sim')} />
-                    <RadioBtn name="ticketOpened" checked={form.ticketOpened === 'nao'} label="Não" onChange={() => { update('ticketOpened', 'nao'); update('callNumber', ''); }} />
-                  </div>
-                </Field>
-                {form.ticketOpened === 'sim' && (
-                  <div className="mt-4 animate-[fadeIn_0.3s_ease-out]">
-                    <Field label={formConfig.callNumber.customLabel || 'Número do Chamado'} required={formConfig.callNumber.required}>
-                      <input type="text" value={form.callNumber} onChange={(e) => update('callNumber', e.target.value)}
-                        placeholder="Ex.: 1234" className="form-input" autoFocus />
+              {/* Descrição & Solução */}
+              {(formConfig.description.enabled || formConfig.solution.enabled) && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {formConfig.description.enabled && (
+                    <Field label={formConfig.description.customLabel || 'Descrição do Atendimento'} required={formConfig.description.required}>
+                      <textarea value={form.description} onChange={(e) => update('description', e.target.value)}
+                        placeholder="Descreva o problema reportado..." rows={4} className="form-input resize-none" />
                     </Field>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Órgão & Sistema */}
-            {(formConfig.organ.enabled || formConfig.system.enabled) && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {formConfig.organ.enabled && (
-                  <Field label={formConfig.organ.customLabel || 'Órgão / Setor'} required={formConfig.organ.required}>
-                    <select value={form.organ} onChange={(e) => update('organ', e.target.value)} className="form-input">
-                      <option value="">Selecione...</option>
-                      {organs.map((o) => <option key={o} value={o}>{o}</option>)}
-                    </select>
-                  </Field>
-                )}
-                {formConfig.system.enabled && (
-                  <Field label={formConfig.system.customLabel || 'Sistema Atendido'} required={formConfig.system.required}>
-                    <select value={form.system} onChange={(e) => update('system', e.target.value)} className="form-input">
-                      <option value="">Selecione...</option>
-                      {systems.map((s) => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                  </Field>
-                )}
-              </div>
-            )}
-
-            {/* Base / Entidade */}
-            <Field label="Base / Entidade">
-              <input
-                type="text"
-                value={form.baseEntity}
-                onChange={(e) => update('baseEntity', e.target.value)}
-                placeholder="Ex.: Prefeitura Municipal de..."
-                className="form-input"
-              />
-            </Field>
-
-            {/* Descrição & Solução */}
-            {(formConfig.description.enabled || formConfig.solution.enabled) && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {formConfig.description.enabled && (
-                  <Field label={formConfig.description.customLabel || 'Descrição do Atendimento'} required={formConfig.description.required}>
-                    <textarea value={form.description} onChange={(e) => update('description', e.target.value)}
-                      placeholder="Descreva o problema reportado..." rows={4} className="form-input resize-none" />
-                  </Field>
-                )}
-                {formConfig.solution.enabled && (
-                  <Field label={formConfig.solution.customLabel || 'Solução Aplicada'} required={formConfig.solution.required}>
-                    <textarea value={form.solution} onChange={(e) => update('solution', e.target.value)}
-                      placeholder="Descreva a solução aplicada..." rows={4} className="form-input resize-none" />
-                  </Field>
-                )}
-              </div>
-            )}
-
-            {/* Ajuda */}
-            {formConfig.receivedHelp.enabled && (
-              <div className="bg-slate-50 rounded-2xl p-5 border border-slate-100">
-                <Field label={formConfig.receivedHelp.customLabel || 'O estagiário teve ajuda de algum técnico?'} required={formConfig.receivedHelp.required}>
-                  <div className="flex gap-3 mt-2">
-                    <RadioBtn name="help" checked={form.receivedHelp === 'sim'} label="Sim" onChange={() => update('receivedHelp', 'sim')} />
-                    <RadioBtn name="help" checked={form.receivedHelp === 'nao'} label="Não" onChange={() => update('receivedHelp', 'nao')} />
-                  </div>
-                </Field>
-                {form.receivedHelp === 'sim' && (
-                  <div className="mt-4 animate-[fadeIn_0.3s_ease-out]">
-                    <Field label="Selecione o técnico que auxiliou:" required>
-                      <select value={form.helperName} onChange={(e) => update('helperName', e.target.value)} className="form-input">
-                        <option value="">Selecione um técnico...</option>
-                        {technicians.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
-                      </select>
+                  )}
+                  {formConfig.solution.enabled && (
+                    <Field label={formConfig.solution.customLabel || 'Solução Aplicada'} required={formConfig.solution.required}>
+                      <textarea value={form.solution} onChange={(e) => update('solution', e.target.value)}
+                        placeholder="Descreva a solução aplicada..." rows={4} className="form-input resize-none" />
                     </Field>
-                    {technicians.length === 0 && (
-                      <p className="text-xs text-amber-600 mt-2 flex items-center gap-1">
-                        ⚠️ Nenhum técnico cadastrado. Peça ao administrador para adicionar técnicos.
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+                  )}
+                </div>
+              )}
 
-            {/* Submit */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2">
-              <button type="submit" className="flex-1 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-blue-800 text-white font-semibold hover:from-blue-700 hover:to-blue-900 transition-all shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2">
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
-                Salvar Chamado
-              </button>
-              <button type="button" onClick={handleNew} className="sm:w-auto px-6 py-3 rounded-xl bg-white border border-slate-200 text-slate-700 font-medium hover:bg-slate-50 transition">
-                Limpar
-              </button>
+              {/* Ajuda */}
+              {formConfig.receivedHelp.enabled && (
+                <div className="bg-slate-50 rounded-2xl p-5 border border-slate-100">
+                  <Field label={formConfig.receivedHelp.customLabel || 'O estagiário teve ajuda de algum técnico?'} required={formConfig.receivedHelp.required}>
+                    <div className="flex gap-3 mt-2">
+                      <RadioBtn name="help" checked={form.receivedHelp === 'sim'} label="Sim" onChange={() => update('receivedHelp', 'sim')} />
+                      <RadioBtn name="help" checked={form.receivedHelp === 'nao'} label="Não" onChange={() => update('receivedHelp', 'nao')} />
+                    </div>
+                  </Field>
+                  {form.receivedHelp === 'sim' && (
+                    <div className="mt-4 animate-[fadeIn_0.3s_ease-out]">
+                      <Field label="Selecione o técnico que auxiliou:" required>
+                        <select value={form.helperName} onChange={(e) => update('helperName', e.target.value)} className="form-input">
+                          <option value="">Selecione um técnico...</option>
+                          {technicians.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
+                        </select>
+                      </Field>
+                      {technicians.length === 0 && (
+                        <p className="text-xs text-amber-600 mt-2 flex items-center gap-1">
+                          ⚠️ Nenhum técnico cadastrado. Peça ao administrador para adicionar técnicos.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Submit */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2">
+                <button type="submit" className="flex-1 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-blue-800 text-white font-semibold hover:from-blue-700 hover:to-blue-900 transition-all shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                  Salvar Chamado
+                </button>
+                <button type="button" onClick={handleNew} className="sm:w-auto px-6 py-3 rounded-xl bg-white border border-slate-200 text-slate-700 font-medium hover:bg-slate-50 transition">
+                  Limpar
+                </button>
+              </div>
             </div>
-          </div>
-        </form>
+          </form>
+        ) : (
+          <SmartFilling
+            apiKey={geminiApiKey}
+            onFieldsFilled={handleFieldsFilled}
+            onComplete={() => setActiveTab('manual')}
+            setToast={(msg) => {
+              setToast(msg);
+            }}
+          />
+        )}
 
         {/* Recent calls */}
         {showRecentCalls && (

@@ -151,12 +151,14 @@ export interface GeneralConfig {
   supervisorAutoRefresh: boolean;
   supervisorAutoRefreshInterval: number; // seconds
   showRecentCallsInIntern: boolean;
+  geminiApiKey?: string;
 }
 
 export const DEFAULT_GENERAL_CONFIG: GeneralConfig = {
   supervisorAutoRefresh: true,
   supervisorAutoRefreshInterval: 10,
   showRecentCallsInIntern: true,
+  geminiApiKey: '',
 };
 
 // ─── Static Lists ─────────────────────────────────────────────────────────────
